@@ -1,6 +1,8 @@
 # main.py
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -12,12 +14,15 @@ from app.tooling.ratelimit import limiter
 from app.redis_client import init_redis, close_redis
 
 
+is_production = os.getenv("ENV", "").lower() == "production"
+
 app = FastAPI(
     title="TripBites API",
     description="Travel intelligence backend for destination briefs, local conditions, and disruption-aware city updates.",
     version="0.2.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
 
 # ---------------------------
@@ -57,9 +62,11 @@ async def _shutdown():
 
 @app.get("/", tags=["meta"])
 async def root():
-    return {
+    payload = {
         "name": "TripBites API",
         "status": "ok",
         "service": "travel-intelligence",
-        "docs": "/docs",
     }
+    if not is_production:
+        payload["docs"] = "/docs"
+    return payload
