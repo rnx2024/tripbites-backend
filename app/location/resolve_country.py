@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import httpx
-from typing import Optional
 
 from app.settings import settings
 
 
-def resolve_country_code(place: str) -> Optional[str]:
+def resolve_country_code(place: str) -> str | None:
     """
     Resolve a city/place name into a 2-letter country code (ISO-3166)
     using Open-Meteo geocoding.

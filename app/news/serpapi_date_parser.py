@@ -1,7 +1,7 @@
 # app/news/serpapi_date_parser.py
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 _ABSOLUTE_DATE_FORMATS = (
     "%Y-%m-%d",
@@ -22,7 +22,7 @@ def _try_parse_absolute_date(s_clean: str) -> datetime | None:
     for fmt in _ABSOLUTE_DATE_FORMATS:
         try:
             dt = datetime.strptime(s_clean, fmt)
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
         except ValueError:
             continue
     return None
@@ -37,7 +37,7 @@ def _try_parse_absolute_date_with_time(s_clean: str) -> datetime | None:
     for fmt in _ABSOLUTE_DATE_CORE_FORMATS:
         try:
             dt = datetime.strptime(core, fmt)
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
         except ValueError:
             continue
     return None
@@ -74,7 +74,7 @@ def parse_serpapi_date(date_str: str) -> datetime | None:
         return None
 
     s_lower = s_clean.lower()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     dt = _try_parse_absolute_date(s_clean)
     if dt is not None:

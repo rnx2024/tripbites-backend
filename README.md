@@ -99,3 +99,34 @@ Then open:
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+### Environment Variables
+
+Set these in a local `.env` file (see `.env.example` for the full template; never commit `.env`):
+
+| Variable | Description |
+| --- | --- |
+| `OPENROUTER_API_KEY` | LLM provider key used by the LangGraph agent |
+| `OPENWEATHER_API_KEY` | OpenWeather current-conditions API key |
+| `SERP_API_KEY` | SerpAPI key for Google News fetches |
+| `TAVILY_API` | Tavily search API key (news fallback provider) |
+| `ORS_API` | OpenRouteService API key; enables journey/route planning |
+| `API_KEY` | Shared secret required via `x-api-key` on protected endpoints |
+| `SESSION_SECRET` | Signing key for the session token (`itsdangerous`) |
+| `FRONTEND_CORS_ORIGIN` | Comma-separated list of allowed CORS origins |
+| `REDIS_URL` | Redis connection string for session + cache storage |
+| `ENV` | Set to `production` on the production deployment to disable `/docs`, `/redoc`, and `/openapi.json`. Leave unset for local development. |
+
+### Linting, Formatting, and Tests
+
+```bash
+uv run ruff check .      # lint
+uv run ruff format .     # format
+uv run pytest            # run the test suite
+```
+
+## Deployment
+
+Deployed as a Docker container on [Render](https://render.com) (see `Dockerfile`; Render assigns the port via `$PORT`, but the container currently binds `8080` directly — confirm this matches your Render service's configured port).
+
+**Important:** set `ENV=production` in the Render service's environment variables. This is what disables `/docs`, `/redoc`, and `/openapi.json` in production — without it, the API docs stay publicly exposed.

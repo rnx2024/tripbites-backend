@@ -1,10 +1,10 @@
 # app/session_auth.py
 from __future__ import annotations
 
-from itsdangerous import URLSafeSerializer, BadSignature
 from fastapi import Header, HTTPException
-from app.settings import settings
+from itsdangerous import BadSignature, URLSafeSerializer
 
+from app.settings import settings
 
 _CURRENT_SESSION_SALT = "tripbites-session-v1"
 _LEGACY_SESSION_SALTS = ("smartnews-session-v1",)
@@ -31,7 +31,7 @@ def verify_session(session_id: str, session_token: str) -> None:
             except BadSignature:
                 continue
         if payload is None:
-            raise HTTPException(status_code=401, detail="Invalid session token")
+            raise HTTPException(status_code=401, detail="Invalid session token") from None
 
     if not isinstance(payload, dict) or payload.get("sid") != session_id:
         raise HTTPException(status_code=401, detail="Session token mismatch")

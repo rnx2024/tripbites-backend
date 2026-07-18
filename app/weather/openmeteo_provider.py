@@ -1,10 +1,11 @@
 # app/weather/openmeteo_provider.py
 from __future__ import annotations
 
-import httpx
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+import httpx
 
 from app.settings import settings
 from app.tooling.retry_policy import build_http_retry
@@ -59,11 +60,13 @@ _WEEKDAYS = {
 }
 
 
-def weather_code_to_text(code: Optional[int]) -> str:
+def weather_code_to_text(code: int | None) -> str:
+    if code is None:
+        return "Unknown conditions"
     return WEATHER_CODE_DESCRIPTIONS.get(code, "Unknown conditions")
 
 
-def classify_weather_code(code: Optional[int]) -> str:
+def classify_weather_code(code: int | None) -> str:
     if code is None:
         return "unknown"
     if code in _THUNDERSTORM_CODES:
@@ -173,7 +176,7 @@ def fetch_openmeteo_forecast(lat: float, lon: float, timezone_name: str = "auto"
         return None, "Invalid JSON from Open-Meteo forecast."
 
 
-def _pick_daily_value(daily: Dict[str, Any], key: str, idx: int):
+def _pick_daily_value(daily: dict[str, Any], key: str, idx: int):
     arr = daily.get(key) or []
     if isinstance(arr, list) and 0 <= idx < len(arr):
         return arr[idx]
@@ -193,9 +196,9 @@ def _resolve_daily_index(times: Any, horizon: str, target_date: str) -> int:
 
 def _to_local_today(timezone_name: str) -> datetime:
     try:
-        tz = ZoneInfo(timezone_name) if timezone_name and timezone_name != "auto" else timezone.utc
+        tz = ZoneInfo(timezone_name) if timezone_name and timezone_name != "auto" else UTC
     except ZoneInfoNotFoundError:
-        tz = timezone.utc
+        tz = UTC
     return datetime.now(tz=tz)
 
 
@@ -261,12 +264,12 @@ def get_weather_summary(place: str, horizon: str = "today", language: str = "en"
 
 def _build_summary(
     *,
-    current: Dict[str, Any],
-    daily: Dict[str, Any],
+    current: dict[str, Any],
+    daily: dict[str, Any],
     target_date: str,
     label: str,
     idx: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "place_label": label,
         "current": {

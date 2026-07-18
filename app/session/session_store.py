@@ -1,16 +1,18 @@
 # app/session/session_store.py
 from __future__ import annotations
 
-import logging
-import time
 import inspect
 import json
-from typing import Any, Awaitable, Callable, Dict, Iterable, Tuple
+import logging
+import time
+from collections.abc import Awaitable, Callable, Iterable
+from typing import Any
+
+from redis.exceptions import RedisError
 
 import app.redis_client as redis_client
+from app.session.errors import SESSION_UNAVAILABLE_MESSAGE, SessionStoreUnavailable
 from app.session.session_keys import DEFAULT_SESSION_TTL, ONE_HOUR, news_key, sess_key, to_int, weather_key
-from app.session.errors import SessionStoreUnavailable, SESSION_UNAVAILABLE_MESSAGE
-from redis.exceptions import RedisError
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ async def _fetch_field(session_id: str, field: str, *, log_context: str) -> str 
         raise SessionStoreUnavailable(SESSION_UNAVAILABLE_MESSAGE) from exc
 
 
-async def _fetch_session_map(session_id: str, *, log_context: str) -> Dict[str, Any]:
+async def _fetch_session_map(session_id: str, *, log_context: str) -> dict[str, Any]:
     client = _require_redis()
     try:
         data = await client.hgetall(sess_key(session_id))
@@ -78,7 +80,7 @@ async def _write_field(
         raise SessionStoreUnavailable(SESSION_UNAVAILABLE_MESSAGE) from exc
 
 
-def _decode_pending_context(raw: str | None) -> Dict[str, str] | None:
+def _decode_pending_context(raw: str | None) -> dict[str, str] | None:
     if not raw:
         return None
     data = json.loads(raw)
@@ -87,13 +89,13 @@ def _decode_pending_context(raw: str | None) -> Dict[str, str] | None:
     return {str(key): str(value) for key, value in data.items() if value is not None}
 
 
-def _decode_recent_turns(raw: str | None) -> list[Dict[str, str]]:
+def _decode_recent_turns(raw: str | None) -> list[dict[str, str]]:
     if not raw:
         return []
     data = json.loads(raw)
     if not isinstance(data, list):
         return []
-    turns: list[Dict[str, str]] = []
+    turns: list[dict[str, str]] = []
     for item in data[-_MAX_RECENT_TURNS:]:
         if not isinstance(item, dict):
             continue
@@ -111,11 +113,11 @@ async def _resolve_compute_value(compute_fn: Callable[[], Awaitable[str] | str])
     return await value if inspect.isawaitable(value) else value
 
 
-async def get_session_state(session_id: str) -> Dict[str, Any]:
+async def get_session_state(session_id: str) -> dict[str, Any]:
     return await _fetch_session_map(session_id, log_context="get_session_state")
 
 
-async def should_include(session_id: str, force_weather: bool, force_news: bool) -> Tuple[bool, bool]:
+async def should_include(session_id: str, force_weather: bool, force_news: bool) -> tuple[bool, bool]:
     data = await _fetch_session_map(session_id, log_context="should_include")
     now = int(time.time())
     last_w = to_int((data or {}).get("last_weather_sent_at"), 0)
@@ -188,7 +190,7 @@ async def set_pending_journey_question(
 
 async def set_pending_agent_context(
     session_id: str,
-    context: Dict[str, str] | None,
+    context: dict[str, str] | None,
     *,
     ttl_seconds: int = DEFAULT_SESSION_TTL,
 ) -> None:
@@ -254,7 +256,7 @@ async def get_active_origin(session_id: str) -> str | None:
     return str(value).strip() if value else None
 
 
-async def get_pending_agent_context(session_id: str) -> Dict[str, str] | None:
+async def get_pending_agent_context(session_id: str) -> dict[str, str] | None:
     raw = await _fetch_field(session_id, _PENDING_AGENT_CONTEXT_FIELD, log_context="get_pending_agent_context")
     try:
         return _decode_pending_context(raw)
@@ -263,7 +265,7 @@ async def get_pending_agent_context(session_id: str) -> Dict[str, str] | None:
         return None
 
 
-async def get_recent_turns(session_id: str) -> list[Dict[str, str]]:
+async def get_recent_turns(session_id: str) -> list[dict[str, str]]:
     raw = await _fetch_field(session_id, _RECENT_TURNS_FIELD, log_context="get_recent_turns")
     try:
         return _decode_recent_turns(raw)
@@ -320,11 +322,12 @@ async def get_or_set(
     ttl_seconds: int,
     compute_fn: Callable[[], Awaitable[str] | str],
 ) -> str:
-    if _active_redis() is None:
+    redis_conn = _active_redis()
+    if redis_conn is None:
         return await _resolve_compute_value(compute_fn)
 
     try:
-        cached = await _active_redis().get(key)
+        cached = await redis_conn.get(key)
         if cached is not None:
             return cached
     except RedisError as exc:
@@ -333,7 +336,7 @@ async def get_or_set(
 
     value = await _resolve_compute_value(compute_fn)
     try:
-        await _active_redis().set(key, value, ex=ttl_seconds)
+        await redis_conn.set(key, value, ex=ttl_seconds)
     except RedisError as exc:
         log.warning("Redis set failed in get_or_set [key=%s]: %s", key, exc)
     return value

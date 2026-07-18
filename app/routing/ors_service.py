@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import httpx
 
@@ -24,7 +24,7 @@ PROFILE_LABELS = {
 }
 
 
-def _build_point_label(loc: Dict[str, Any], fallback: str) -> str:
+def _build_point_label(loc: dict[str, Any], fallback: str) -> str:
     name = str(loc.get("name") or "").strip()
     country = str(loc.get("country") or "").strip()
     if name and country:
@@ -34,11 +34,13 @@ def _build_point_label(loc: Dict[str, Any], fallback: str) -> str:
     return fallback
 
 
-def _midpoint(lat1: float, lon1: float, lat2: float, lon2: float) -> Tuple[float, float]:
+def _midpoint(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float, float]:
     return (lat1 + lat2) / 2.0, (lon1 + lon2) / 2.0
 
 
-def _fetch_route(profile: str, start: Tuple[float, float], end: Tuple[float, float]) -> Tuple[Dict[str, Any] | None, str]:
+def _fetch_route(
+    profile: str, start: tuple[float, float], end: tuple[float, float]
+) -> tuple[dict[str, Any] | None, str]:
     if not settings.ors_api:
         return None, "missing_ors_api"
 
@@ -90,7 +92,7 @@ def _fetch_route(profile: str, start: Tuple[float, float], end: Tuple[float, flo
     }, ""
 
 
-def _resolve_location(place: str, role: str) -> Tuple[Dict[str, Any] | None, str]:
+def _resolve_location(place: str, role: str) -> tuple[dict[str, Any] | None, str]:
     loc, err = geocode_place(place)
     if err or not loc:
         return None, f"{role}_geocode_failed:{err or 'unknown'}"
@@ -108,12 +110,12 @@ def _resolve_location(place: str, role: str) -> Tuple[Dict[str, Any] | None, str
 
 
 def _collect_routes(
-    profiles: Tuple[str, ...],
-    start: Tuple[float, float],
-    end: Tuple[float, float],
-) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-    routes: List[Dict[str, Any]] = []
-    errors: Dict[str, str] = {}
+    profiles: tuple[str, ...],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    routes: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
     for profile in profiles:
         route, err = _fetch_route(profile, start, end)
         if route:
@@ -123,15 +125,15 @@ def _collect_routes(
     return routes, errors
 
 
-def _select_best_route(routes: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _select_best_route(routes: list[dict[str, Any]]) -> dict[str, Any]:
     return min(routes, key=lambda r: r.get("raw_duration_s") or float("inf"))
 
 
 def plan_route(
     origin: str,
     destination: str,
-    profiles: Tuple[str, ...] | None = None,
-) -> Tuple[Dict[str, Any] | None, str]:
+    profiles: tuple[str, ...] | None = None,
+) -> tuple[dict[str, Any] | None, str]:
     if not settings.ors_api:
         return None, "missing_ors_api"
 

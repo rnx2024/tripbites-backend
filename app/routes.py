@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from typing import Annotated, Optional, Literal
+import hmac
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Header, Depends, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.agent.agent_service import run_agent
+from app.news.news_service import get_news_items
+from app.session.errors import SESSION_UNAVAILABLE_MESSAGE, SessionStoreUnavailable
+from app.session.session_auth import require_session, sign_session
+from app.session.session_store import ensure_session_store_ready
+from app.settings import settings
+from app.tooling.ratelimit import limiter
 from app.travel_brief import build_travel_brief
 from app.weather.weather_service import get_weather_line
-from app.news.news_service import get_news_items
-from app.settings import settings
-from app.session.session_auth import require_session, sign_session
-from app.session.errors import SessionStoreUnavailable, SESSION_UNAVAILABLE_MESSAGE
-from app.session.session_store import ensure_session_store_ready
-from app.tooling.ratelimit import limiter
-
 
 router = APIRouter()
 RiskLevel = Literal["low", "medium", "high"]
@@ -24,7 +24,7 @@ SourceType = Literal["weather", "news"]
 def require_api_key(
     x_api_key: Annotated[str, Header(..., alias="x-api-key")],
 ) -> None:
-    if x_api_key != settings.api_key:
+    if not hmac.compare_digest(x_api_key, settings.api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
@@ -41,7 +41,7 @@ async def _ensure_session_store_available() -> None:
 
 class AgentRequest(BaseModel):
     place: str
-    question: Optional[str] = None
+    question: str | None = None
 
 
 class TravelBriefSourceResponse(BaseModel):

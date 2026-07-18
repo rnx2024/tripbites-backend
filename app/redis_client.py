@@ -1,6 +1,4 @@
 # app/redis_client.py
-from __future__ import annotations
-
 """
 Redis client lifecycle for SmartNews.
 
@@ -10,9 +8,11 @@ Redis client lifecycle for SmartNews.
 - Used ONLY for short-lived session + cache data
 """
 
+from __future__ import annotations
+
 import logging
 from urllib.parse import urlparse
-from typing import Optional
+
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
@@ -20,7 +20,7 @@ from app.settings import settings
 
 log = logging.getLogger(__name__)
 
-redis: Optional[Redis] = None
+redis: Redis | None = None
 
 
 def _safe_redis_target(redis_url: str) -> str:
@@ -28,10 +28,7 @@ def _safe_redis_target(redis_url: str) -> str:
         parsed = urlparse(redis_url)
         host = parsed.hostname or "unknown-host"
         scheme = parsed.scheme or "redis"
-        if parsed.port:
-            port = parsed.port
-        else:
-            port = 6380 if scheme == "rediss" else 6379
+        port = parsed.port or (6380 if scheme == "rediss" else 6379)
         return f"{scheme}://{host}:{port}"
     except Exception:
         return "redis://unknown-host"

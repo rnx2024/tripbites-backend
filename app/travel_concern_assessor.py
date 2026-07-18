@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from langchain_openai import ChatOpenAI
 from openai import OpenAIError
@@ -9,17 +9,16 @@ from openai import OpenAIError
 from app.settings import settings
 from app.travel_intelligence import classify_risk_level, score_weather_risk
 
-
 RiskLevel = Literal["low", "medium", "high"]
 
 
 class ConcernAssessment(TypedDict):
     risk_level: RiskLevel
     final: str
-    travel_advice: List[str]
-    weather_reasons: List[str]
-    news_reasons: List[str]
-    relevant_news_items: List[Dict[str, Any]]
+    travel_advice: list[str]
+    weather_reasons: list[str]
+    news_reasons: list[str]
+    relevant_news_items: list[dict[str, Any]]
 
 
 _MAX_NEWS_ITEMS = 8
@@ -67,11 +66,11 @@ def _normalize_risk_level(value: Any) -> RiskLevel:
     return "low"
 
 
-def _normalize_text_list(value: Any, *, limit: int = 3) -> List[str]:
+def _normalize_text_list(value: Any, *, limit: int = 3) -> list[str]:
     if not isinstance(value, list):
         return []
 
-    items: List[str] = []
+    items: list[str] = []
     for item in value:
         text = str(item or "").strip()
         if not text or text in items:
@@ -82,11 +81,11 @@ def _normalize_text_list(value: Any, *, limit: int = 3) -> List[str]:
     return items
 
 
-def _normalize_news_indexes(value: Any, total_items: int) -> List[int]:
+def _normalize_news_indexes(value: Any, total_items: int) -> list[int]:
     if not isinstance(value, list):
         return []
 
-    indexes: List[int] = []
+    indexes: list[int] = []
     for item in value:
         if not isinstance(item, int):
             continue
@@ -100,12 +99,12 @@ def _normalize_news_indexes(value: Any, total_items: int) -> List[int]:
 
 def _build_fallback_assessment(
     place: str,
-    weather_summary: Dict[str, Any] | None,
+    weather_summary: dict[str, Any] | None,
     weather_line: str,
     news_scan_available: bool,
 ) -> ConcernAssessment:
     weather_score, weather_reasons = score_weather_risk(weather_summary)
-    risk_level = classify_risk_level(weather_score)
+    risk_level = _normalize_risk_level(classify_risk_level(weather_score))
 
     if weather_summary:
         current = weather_summary.get("current") or {}
@@ -126,7 +125,7 @@ def _build_fallback_assessment(
     else:
         final = f"{place} travel conditions could not be fully assessed from the currently gathered data."
 
-    advice: List[str] = []
+    advice: list[str] = []
     if not news_scan_available:
         advice.append("Local news context could not be confirmed from the current scan.")
 
@@ -142,9 +141,9 @@ def _build_fallback_assessment(
 
 def assess_travel_concern(
     place: str,
-    weather_summary: Dict[str, Any] | None,
+    weather_summary: dict[str, Any] | None,
     weather_line: str,
-    headlines: List[Dict[str, Any]],
+    headlines: list[dict[str, Any]],
     *,
     news_scan_available: bool,
 ) -> ConcernAssessment:

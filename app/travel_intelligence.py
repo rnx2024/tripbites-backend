@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any
 
 from app.weather.weather_service import classify_weather_code
 
 
-def score_weather_risk(summary: Any) -> tuple[int, List[str]]:
+def score_weather_risk(summary: Any) -> tuple[int, list[str]]:
     if not summary:
         return 0, []
 
@@ -13,7 +13,7 @@ def score_weather_risk(summary: Any) -> tuple[int, List[str]]:
     day = summary.get("day") or {}
 
     score = 0
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     score, reasons = _apply_risk_signal(score, reasons, _score_weather_category(current.get("weather_code")))
     score, reasons = _apply_risk_signal(score, reasons, _score_wind(day.get("wind_speed_max_kmh")))
@@ -23,7 +23,7 @@ def score_weather_risk(summary: Any) -> tuple[int, List[str]]:
     return score, reasons
 
 
-def _apply_risk_signal(score: int, reasons: List[str], signal: tuple[int, List[str]]) -> tuple[int, List[str]]:
+def _apply_risk_signal(score: int, reasons: list[str], signal: tuple[int, list[str]]) -> tuple[int, list[str]]:
     delta, notes = signal
     if delta:
         score += delta
@@ -32,7 +32,7 @@ def _apply_risk_signal(score: int, reasons: List[str], signal: tuple[int, List[s
     return score, reasons
 
 
-def _score_weather_category(code: Any) -> tuple[int, List[str]]:
+def _score_weather_category(code: Any) -> tuple[int, list[str]]:
     category = classify_weather_code(code)
     mapping = {
         "thunderstorm": (3, ["thunderstorms are expected"]),
@@ -44,7 +44,7 @@ def _score_weather_category(code: Any) -> tuple[int, List[str]]:
     return mapping.get(category, (0, []))
 
 
-def _score_wind(wind_max: Any) -> tuple[int, List[str]]:
+def _score_wind(wind_max: Any) -> tuple[int, list[str]]:
     wind = wind_max or 0
     if wind >= 70:
         return 3, ["very strong winds may disrupt transport"]
@@ -55,7 +55,7 @@ def _score_wind(wind_max: Any) -> tuple[int, List[str]]:
     return 0, []
 
 
-def _score_precip(precip: Any) -> tuple[int, List[str]]:
+def _score_precip(precip: Any) -> tuple[int, list[str]]:
     precip_mm = precip or 0
     if precip_mm >= 30:
         return 2, ["heavy rainfall could slow local travel"]
@@ -64,8 +64,8 @@ def _score_precip(precip: Any) -> tuple[int, List[str]]:
     return 0, []
 
 
-def _score_temperature(tmin: Any, tmax: Any) -> tuple[int, List[str]]:
-    notes: List[str] = []
+def _score_temperature(tmin: Any, tmax: Any) -> tuple[int, list[str]]:
+    notes: list[str] = []
     score = 0
     if tmax is not None and tmax >= 35:
         score += 2

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -22,8 +22,8 @@ def _infer_source_name(url: str) -> str | None:
     return host.removeprefix("www.")
 
 
-def _normalize_tavily_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    normalized: List[Dict[str, Any]] = []
+def _normalize_tavily_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
     for item in results[:_MAX_RESULTS]:
         url = str(item.get("url") or "").strip()
         title = str(item.get("title") or "").strip()
@@ -41,7 +41,7 @@ def _normalize_tavily_results(results: List[Dict[str, Any]]) -> List[Dict[str, A
     return normalized
 
 
-def search_tavily(query: str, place_hint: str | None = None) -> Tuple[List[Dict[str, Any]], str]:
+def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[str, Any]], str]:
     if not settings.tavily_api:
         return [], "missing_tavily_api"
 

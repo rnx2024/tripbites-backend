@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from app.news.news_service import get_news_items
 from app.travel_concern_assessor import assess_travel_concern
 from app.weather.weather_service import get_weather_line, get_weather_summary
-
 
 RiskLevel = Literal["low", "medium", "high"]
 SourceType = Literal["weather", "news"]
@@ -19,16 +18,18 @@ class TravelBrief(TypedDict):
     place: str
     final: str
     risk_level: RiskLevel
-    travel_advice: List[str]
-    sources: List[BriefSource]
-    weather_summary: Dict[str, Any] | None
-    weather_reasons: List[str]
-    news_reasons: List[str]
-    news_items: List[Dict[str, Any]]
+    travel_advice: list[str]
+    sources: list[BriefSource]
+    weather_summary: dict[str, Any] | None
+    weather_reasons: list[str]
+    news_reasons: list[str]
+    news_items: list[dict[str, Any]]
 
 
-def _build_sources(weather_summary: Dict[str, Any] | None, weather_line: str, headlines: List[Dict[str, Any]]) -> List[BriefSource]:
-    sources: List[BriefSource] = []
+def _build_sources(
+    weather_summary: dict[str, Any] | None, weather_line: str, headlines: list[dict[str, Any]]
+) -> list[BriefSource]:
+    sources: list[BriefSource] = []
     if weather_summary or weather_line:
         sources.append({"type": "weather"})
     if headlines:

@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal, Optional, Tuple
-
+from typing import Literal
 
 AnswerMode = Literal["travel_brief", "news_followup", "weather_followup", "journey_planning"]
 
@@ -209,7 +208,7 @@ def _has_any_term(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
 
 
-def is_trip_planning_question(q: Optional[str]) -> bool:
+def is_trip_planning_question(q: str | None) -> bool:
     """
     Heuristic: identify trip/planning go/no-go questions that should trigger both
     weather + news signals even without explicit 'weather'/'news' keywords.
@@ -258,7 +257,7 @@ def is_trip_planning_question(q: Optional[str]) -> bool:
     return any(t in s for t in trip_terms) and (any(t in s for t in date_terms) or any(t in s for t in intent_terms))
 
 
-def decide_tool_includes(question: Optional[str]) -> Tuple[bool, bool]:
+def decide_tool_includes(question: str | None) -> tuple[bool, bool]:
     """
     Decide whether the agent should be allowed to call weather_tool/news_tool.
 
@@ -278,12 +277,12 @@ def decide_tool_includes(question: Optional[str]) -> Tuple[bool, bool]:
     return (inc_w, inc_n) if (inc_w or inc_n) else (False, False)
 
 
-def detect_force_signals(question: str) -> Tuple[bool, bool]:
+def detect_force_signals(question: str) -> tuple[bool, bool]:
     """
     Decide whether the request should bypass session suppression (force include).
     Trip-planning questions force both.
     """
-    q = (question or "")
+    q = question or ""
     q_lc = q.lower()
 
     if is_trip_planning_question(q) or is_journey_planning_question(q):
@@ -292,7 +291,7 @@ def detect_force_signals(question: str) -> Tuple[bool, bool]:
     return ("weather" in q_lc, "news" in q_lc)
 
 
-def classify_answer_mode(question: Optional[str], last_reply: Optional[str] = None) -> AnswerMode:
+def classify_answer_mode(question: str | None, last_reply: str | None = None) -> AnswerMode:
     if not question:
         return "travel_brief"
 
@@ -329,7 +328,7 @@ def _should_force_journey(
     question: str,
     question_lc: str,
     last_reply_lc: str,
-    last_reply: Optional[str],
+    last_reply: str | None,
 ) -> bool:
     if _has_any_term(last_reply_lc, _ORIGIN_QUESTION_TERMS) and extract_origin(question, last_reply):
         return True
@@ -357,7 +356,7 @@ def _resolve_followup_signals(question_lc: str, last_reply_lc: str) -> tuple[boo
     return has_weather, has_news
 
 
-def needs_followup_reference_clarification(question: Optional[str], last_reply: Optional[str] = None) -> bool:
+def needs_followup_reference_clarification(question: str | None, last_reply: str | None = None) -> bool:
     if not question or last_reply:
         return False
 
@@ -384,7 +383,7 @@ def needs_followup_reference_clarification(question: Optional[str], last_reply: 
     return len(concrete_topic_tokens) < 2
 
 
-def is_journey_planning_question(q: Optional[str]) -> bool:
+def is_journey_planning_question(q: str | None) -> bool:
     if not q:
         return False
 
@@ -399,14 +398,14 @@ def is_journey_planning_question(q: Optional[str]) -> bool:
     return has_route_phrase and any(token in s for token in ("trip", "travel", "route", "transport", "transpo"))
 
 
-def asks_route_or_transport(question: Optional[str]) -> bool:
+def asks_route_or_transport(question: str | None) -> bool:
     if not question:
         return False
     q = question.lower()
     return _has_any_term(q, _ROUTE_TRANSPORT_TERMS) or _mentions_transport_choice(q)
 
 
-def needs_origin_clarification(question: Optional[str], last_reply: Optional[str] = None) -> bool:
+def needs_origin_clarification(question: str | None, last_reply: str | None = None) -> bool:
     if not question:
         return False
     last = (last_reply or "").lower()
@@ -415,7 +414,7 @@ def needs_origin_clarification(question: Optional[str], last_reply: Optional[str
     return extract_origin(question, last_reply) is None
 
 
-def extract_origin(question: Optional[str], last_reply: Optional[str] = None) -> str | None:
+def extract_origin(question: str | None, last_reply: str | None = None) -> str | None:
     if not question:
         return None
 
@@ -455,7 +454,7 @@ def extract_origin(question: Optional[str], last_reply: Optional[str] = None) ->
     return None
 
 
-def is_origin_only_reply(question: Optional[str]) -> bool:
+def is_origin_only_reply(question: str | None) -> bool:
     if not question:
         return False
 
@@ -489,7 +488,11 @@ def _looks_like_location_reply(text: str) -> bool:
         return False
     if len(compact.split()) > 5:
         return False
-    if re.search(r"\b(bus|car|drive|flight|ferry|route|transport|transpo|weather|news|risk|safe|should|can|what|when|why|how)\b", compact, flags=re.IGNORECASE):
+    if re.search(
+        r"\b(bus|car|drive|flight|ferry|route|transport|transpo|weather|news|risk|safe|should|can|what|when|why|how)\b",
+        compact,
+        flags=re.IGNORECASE,
+    ):
         return False
     return bool(re.fullmatch(r"[A-Za-z][A-Za-z .'-]*", compact))
 
