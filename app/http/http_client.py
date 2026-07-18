@@ -6,6 +6,8 @@ from typing import Any, Dict, Tuple
 
 import httpx
 
+from app.tooling.retry_policy import build_http_retry
+
 log = logging.getLogger(__name__)
 
 
@@ -15,31 +17,27 @@ def get_json_with_retry(
     retries: int = 3,
     timeout: float = 10.0,
 ) -> Tuple[Dict[str, Any], str]:
-    last_err = ""
+    @build_http_retry(max_attempts=retries)
+    def _get() -> httpx.Response:
+        response = httpx.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response
 
-    for attempt in range(1, retries + 1):
-        try:
-            response = httpx.get(url, params=params, timeout=timeout)
-            response.raise_for_status()
-        except httpx.TimeoutException:
-            last_err = "timeout"
-            log.warning("Timeout from %s [attempt %s/%s]", url, attempt, retries)
-            continue
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code if exc.response is not None else "unknown"
-            last_err = str(status)
-            log.error("HTTP %s from %s [attempt %s/%s]", status, url, attempt, retries)
-            continue
-        except httpx.RequestError as exc:
-            last_err = str(exc)
-            log.error("Request error from %s [attempt %s/%s]: %s", url, attempt, retries, exc)
-            continue
+    try:
+        response = _get()
+    except httpx.TimeoutException:
+        log.warning("Timeout from %s after %s attempt(s)", url, retries)
+        return {}, "timeout"
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        log.error("HTTP %s from %s after %s attempt(s)", status, url, retries)
+        return {}, str(status)
+    except httpx.RequestError as exc:
+        log.error("Request error from %s after %s attempt(s): %s", url, retries, exc)
+        return {}, str(exc)
 
-        try:
-            return response.json(), ""
-        except ValueError:
-            last_err = "invalid_json"
-            log.error("Invalid JSON from %s [attempt %s/%s]", url, attempt, retries)
-            continue
-
-    return {}, last_err
+    try:
+        return response.json(), ""
+    except ValueError:
+        log.error("Invalid JSON from %s", url)
+        return {}, "invalid_json"

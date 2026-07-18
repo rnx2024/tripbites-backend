@@ -1,12 +1,13 @@
 # app/weather/openmeteo_provider.py
 from __future__ import annotations
 
-import requests
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.settings import settings
+from app.tooling.retry_policy import build_http_retry
 
 # WMO code → readable description
 WEATHER_CODE_DESCRIPTIONS = {
@@ -81,16 +82,24 @@ def classify_weather_code(code: Optional[int]) -> str:
 
 
 def geocode_place(place: str, language: str = "en"):
-    try:
-        response = requests.get(
+    @build_http_retry()
+    def _get() -> httpx.Response:
+        response = httpx.get(
             settings.openmeteo_geocode_url,
             params={"name": place, "count": 1, "language": language, "format": "json"},
             timeout=5,
         )
         response.raise_for_status()
-    except requests.Timeout:
+        return response
+
+    try:
+        response = _get()
+    except httpx.TimeoutException:
         return None, "Open-Meteo geocoding timeout."
-    except requests.RequestException as exc:
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else "http_error"
+        return None, f"Open-Meteo geocoding error: {status}"
+    except httpx.RequestError as exc:
         return None, str(exc)
 
     try:
@@ -113,8 +122,9 @@ def geocode_place(place: str, language: str = "en"):
 
 
 def fetch_openmeteo_forecast(lat: float, lon: float, timezone_name: str = "auto"):
-    try:
-        response = requests.get(
+    @build_http_retry()
+    def _get() -> httpx.Response:
+        response = httpx.get(
             settings.openmeteo_forecast_url,
             params={
                 "latitude": lat,
@@ -145,9 +155,16 @@ def fetch_openmeteo_forecast(lat: float, lon: float, timezone_name: str = "auto"
             timeout=8,
         )
         response.raise_for_status()
-    except requests.Timeout:
+        return response
+
+    try:
+        response = _get()
+    except httpx.TimeoutException:
         return None, "Open-Meteo forecast timeout."
-    except requests.RequestException as exc:
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else "http_error"
+        return None, f"Open-Meteo forecast error: {status}"
+    except httpx.RequestError as exc:
         return None, str(exc)
 
     try:

@@ -19,7 +19,7 @@ from app.tooling.sync_cache import (
     cache_set_str,
 )
 from app.tooling.text_normalize import normalize_text
-from app.tooling.retry_rate_limit import RateLimiter, is_error_result, retry
+from app.tooling.retry_rate_limit import ERROR_PREFIX, RateLimiter, is_error_result
 
 
 # -----------------------------
@@ -65,6 +65,18 @@ class RoutePlanInput(BaseModel):
     origin: str
     destination: str
     profiles: Optional[list[str]] = None
+
+
+def _run(fn: Any) -> Any:
+    """
+    Execute a tool call once. HTTP-level retries (retryguard + tenacity) already
+    handle transient upstream failures, so this only converts a raised exception
+    into an "ERROR: ..." string for cache-skip checks via is_error_result().
+    """
+    try:
+        return fn()
+    except Exception as e:
+        return f"{ERROR_PREFIX}{e}"
 
 
 def _format_news_items(headlines: list[dict[str, Any]], *, empty_message: str) -> str:
@@ -173,7 +185,7 @@ def travel_brief_tool(place: str) -> str:
             raise RuntimeError(err)
         return json.dumps(brief)
 
-    out = retry(call)
+    out = _run(call)
     if isinstance(out, str) and not is_error_result(out):
         cache_set_str(cache_key, out, ttl=CACHE_TTL_SECONDS)
     return out
@@ -197,7 +209,7 @@ def weather_tool(place: str, horizon: Optional[str] = "today") -> str:
         summary = _load_weather_summary(place, hz)
         return _format_weather_summary(summary, hz, place)
 
-    out = retry(call)
+    out = _run(call)
     if isinstance(out, str) and not is_error_result(out):
         cache_set_str(cache_key, out, ttl=CACHE_TTL_SECONDS)
     return out
@@ -219,7 +231,7 @@ def news_tool(place: str) -> str:
             raise RuntimeError(err)
         return _format_news_items(headlines, empty_message="No recent news.")
 
-    out = retry(call)
+    out = _run(call)
     if isinstance(out, str) and not is_error_result(out):
         cache_set_str(cache_key, out, ttl=CACHE_TTL_SECONDS)
     return out
@@ -249,7 +261,7 @@ def news_search_tool(query: str, place_hint: Optional[str] = None) -> str:
             raise RuntimeError(err)
         return _format_news_items(headlines, empty_message="No targeted news results.")
 
-    out = retry(call)
+    out = _run(call)
     if isinstance(out, str) and not is_error_result(out):
         cache_set_str(cache_key, out, ttl=CACHE_TTL_SECONDS)
     return out
@@ -279,7 +291,7 @@ def city_risk_tool(
         reasons = _extract_risk_reasons(brief)
         return _build_risk_message(level, reasons, activity)
 
-    return retry(call)
+    return _run(call)
 
 
 @tool(args_schema=RoutePlanInput)
@@ -299,7 +311,7 @@ def route_planner_tool(origin: str, destination: str, profiles: Optional[list[st
             raise RuntimeError(err or "route_planning_failed")
         return json.dumps(plan)
 
-    out = retry(call)
+    out = _run(call)
     if isinstance(out, str) and not is_error_result(out):
         cache_set_str(cache_key, out, ttl=CACHE_TTL_SECONDS)
     return out
