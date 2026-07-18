@@ -18,9 +18,11 @@ class SerpApiNewsFetcherTests(unittest.TestCase):
             ]
         }
 
-        with patch("app.news.serpapi_news_fetcher.resolve_country_code", return_value="PH"):
-            with patch("app.news.serpapi_news_fetcher.get_json_with_retry", return_value=(payload, "")):
-                items, err = fetch_news_items("Cebu")
+        with (
+            patch("app.news.serpapi_news_fetcher.resolve_country_code", return_value="PH"),
+            patch("app.news.serpapi_news_fetcher.get_json_with_retry", return_value=(payload, "")),
+        ):
+            items, err = fetch_news_items("Cebu")
 
         self.assertEqual(err, "")
         self.assertEqual(len(items), 1)

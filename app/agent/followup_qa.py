@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from app.agent.agent_prompts import (
     FOLLOWUP_ACTION_SYSTEM_PROMPT,
@@ -11,9 +12,9 @@ from app.agent.agent_prompts import (
     JOURNEY_QA_SYSTEM_PROMPT,
 )
 from app.news.news_service import get_news_items, search_news
+from app.routing.ors_service import plan_route
 from app.travel_brief import build_travel_brief
 from app.weather.weather_service import get_weather_line, get_weather_summary, get_weather_summary_by_coords
-from app.routing.ors_service import plan_route
 
 _LONG_DISTANCE_KM = 500.0
 
@@ -22,13 +23,11 @@ def _extract_text_tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{4,}", (text or "").lower()))
 
 
-def _match_news_item(question: str, last_reply: Optional[str], items: List[Dict[str, Any]]) -> Dict[str, Any] | None:
+def _match_news_item(question: str, last_reply: str | None, items: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not items:
         return None
 
-    reference_text = " ".join(
-        part for part in (question or "", last_reply or "") if part and part.strip()
-    ).strip()
+    reference_text = " ".join(part for part in (question or "", last_reply or "") if part and part.strip()).strip()
     reference_tokens = _extract_text_tokens(reference_text)
     if not reference_tokens:
         return items[0]
@@ -44,7 +43,7 @@ def _match_news_item(question: str, last_reply: Optional[str], items: List[Dict[
     return best_item
 
 
-def _news_text(item: Dict[str, Any] | None) -> str:
+def _news_text(item: dict[str, Any] | None) -> str:
     if not item:
         return ""
 
@@ -55,7 +54,7 @@ def _news_text(item: Dict[str, Any] | None) -> str:
     ).strip()
 
 
-def _gather_place_evidence(place: str, horizon: str | None = None) -> Dict[str, Any]:
+def _gather_place_evidence(place: str, horizon: str | None = None) -> dict[str, Any]:
     brief, err = build_travel_brief(place)
     weather_summary = brief.get("weather_summary")
     weather_reasons = brief.get("weather_reasons") or []
@@ -77,7 +76,7 @@ def _gather_place_evidence(place: str, horizon: str | None = None) -> Dict[str, 
     }
 
 
-async def _invoke_reasoner(llm: Any, system_prompt: str, *, place: str, question: str, evidence: Dict[str, Any]) -> str:
+async def _invoke_reasoner(llm: Any, system_prompt: str, *, place: str, question: str, evidence: dict[str, Any]) -> str:
     payload = json.dumps(evidence, ensure_ascii=True, indent=2)
     response = await llm.ainvoke(
         [
@@ -91,7 +90,7 @@ async def _invoke_reasoner(llm: Any, system_prompt: str, *, place: str, question
     return str(getattr(response, "content", "") or "").strip()
 
 
-async def _run_followup_reasoner(llm: Any, *, place: str, question: str, evidence: Dict[str, Any]) -> str:
+async def _run_followup_reasoner(llm: Any, *, place: str, question: str, evidence: dict[str, Any]) -> str:
     return await _invoke_reasoner(
         llm,
         FOLLOWUP_QA_SYSTEM_PROMPT,
@@ -101,7 +100,7 @@ async def _run_followup_reasoner(llm: Any, *, place: str, question: str, evidenc
     )
 
 
-async def _run_journey_reasoner(llm: Any, *, place: str, question: str, evidence: Dict[str, Any]) -> str:
+async def _run_journey_reasoner(llm: Any, *, place: str, question: str, evidence: dict[str, Any]) -> str:
     return await _invoke_reasoner(
         llm,
         JOURNEY_QA_SYSTEM_PROMPT,
@@ -111,7 +110,7 @@ async def _run_journey_reasoner(llm: Any, *, place: str, question: str, evidence
     )
 
 
-async def _run_journey_transport_reasoner(llm: Any, *, place: str, question: str, evidence: Dict[str, Any]) -> str:
+async def _run_journey_transport_reasoner(llm: Any, *, place: str, question: str, evidence: dict[str, Any]) -> str:
     guidance_prompt = (
         f"{JOURNEY_QA_SYSTEM_PROMPT}\n\n"
         "Transport guidance:\n"
@@ -130,7 +129,7 @@ async def _run_journey_transport_reasoner(llm: Any, *, place: str, question: str
     )
 
 
-async def _plan_followup_action(llm: Any, *, place: str, question: str, evidence: Dict[str, Any]) -> Dict[str, Any]:
+async def _plan_followup_action(llm: Any, *, place: str, question: str, evidence: dict[str, Any]) -> dict[str, Any]:
     raw = await _invoke_reasoner(
         llm,
         FOLLOWUP_ACTION_SYSTEM_PROMPT,
@@ -150,7 +149,7 @@ async def _plan_followup_action(llm: Any, *, place: str, question: str, evidence
     }
 
 
-async def _plan_journey_action(llm: Any, *, place: str, question: str, evidence: Dict[str, Any]) -> Dict[str, Any]:
+async def _plan_journey_action(llm: Any, *, place: str, question: str, evidence: dict[str, Any]) -> dict[str, Any]:
     raw = await _invoke_reasoner(
         llm,
         JOURNEY_ACTION_SYSTEM_PROMPT,
@@ -261,7 +260,7 @@ def _normalize_search_query(query: str, *extras: str) -> str:
     return " ".join(part for part in parts if part).strip()
 
 
-def _build_news_targeted_query(place: str, question: str, item: Dict[str, Any] | None, _last_reply: Optional[str]) -> str:
+def _build_news_targeted_query(place: str, question: str, item: dict[str, Any] | None, _last_reply: str | None) -> str:
     if question and question.strip():
         return _normalize_search_query(question, place)
     if item and item.get("title"):
@@ -269,7 +268,7 @@ def _build_news_targeted_query(place: str, question: str, item: Dict[str, Any] |
     return place
 
 
-def _extract_best_news_link(evidence: Dict[str, Any]) -> str | None:
+def _extract_best_news_link(evidence: dict[str, Any]) -> str | None:
     for key in ("matched_targeted_item", "matched_current_item"):
         link = _extract_link(evidence.get(key))
         if link:
@@ -319,7 +318,7 @@ def _contains_url(text: str) -> bool:
     return bool(re.search(r"https?://\S+", text or ""))
 
 
-def _append_followup_link_if_needed(final: str, evidence: Dict[str, Any], original_text: str | None = None) -> str:
+def _append_followup_link_if_needed(final: str, evidence: dict[str, Any], original_text: str | None = None) -> str:
     source_text = original_text or final
     if not final or _contains_url(final) or not _answer_mentions_article_or_source(source_text):
         return final
@@ -332,7 +331,7 @@ def _append_followup_link_if_needed(final: str, evidence: Dict[str, Any], origin
     return f"{final}{separator} Source: {link}"
 
 
-def _build_journey_targeted_query(origin: str, destination: str, question: str, pending_question: Optional[str]) -> str:
+def _build_journey_targeted_query(origin: str, destination: str, question: str, pending_question: str | None) -> str:
     base = pending_question or question
     hazard_terms = "road closure traffic landslide flood ferry"
     return _normalize_search_query(base, origin, destination, hazard_terms)
@@ -348,7 +347,7 @@ def _detect_weather_horizon(question: str) -> str:
     return "today"
 
 
-def _join_news_text(items: List[Dict[str, Any]]) -> str:
+def _join_news_text(items: list[dict[str, Any]]) -> str:
     parts: list[str] = []
     for item in items:
         if not isinstance(item, dict):
@@ -362,8 +361,8 @@ def _join_news_text(items: List[Dict[str, Any]]) -> str:
     return " ".join(parts).strip()
 
 
-def _collect_disruption_flags(*blocks: Dict[str, Any]) -> Dict[str, bool]:
-    items: list[Dict[str, Any]] = []
+def _collect_disruption_flags(*blocks: dict[str, Any]) -> dict[str, bool]:
+    items: list[dict[str, Any]] = []
     for block in blocks:
         block_items = block.get("news_items") if isinstance(block, dict) else None
         if isinstance(block_items, list):
@@ -374,10 +373,16 @@ def _collect_disruption_flags(*blocks: Dict[str, Any]) -> Dict[str, bool]:
         return {"road": False, "flight": False, "ferry": False}
 
     road_terms = ("road closure", "road closed", "landslide", "bridge closure", "detour", "reroute", "re-route")
-    flight_terms = ("flight cancellation", "flight cancelled", "flight canceled", "airport closure", "suspended flights")
+    flight_terms = (
+        "flight cancellation",
+        "flight cancelled",
+        "flight canceled",
+        "airport closure",
+        "suspended flights",
+    )
     ferry_terms = ("ferry cancellation", "ferry cancelled", "ferry canceled", "port closure", "ferry suspension")
 
-    def _has_any(terms: Tuple[str, ...]) -> bool:
+    def _has_any(terms: tuple[str, ...]) -> bool:
         return any(term in text for term in terms)
 
     return {"road": _has_any(road_terms), "flight": _has_any(flight_terms), "ferry": _has_any(ferry_terms)}
@@ -398,7 +403,7 @@ def _format_duration(duration_min: float | None) -> str:
     return f"about {hours:.1f} hours"
 
 
-def _guidance_no_routes() -> Dict[str, Any]:
+def _guidance_no_routes() -> dict[str, Any]:
     return {
         "reason": "no_routes",
         "message": (
@@ -415,7 +420,7 @@ def _guidance_long_distance(
     distance_km: float,
     duration_min: float | None,
     road_disruption: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     distance_text = _format_distance(distance_km)
     duration_text = _format_duration(duration_min)
     distance_clause = f" ({distance_text}, {duration_text})" if distance_text and duration_text else ""
@@ -438,7 +443,7 @@ def _guidance_road_disruption(
     mode_label: str,
     distance_km: float | None,
     duration_min: float | None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     distance_text = _format_distance(distance_km)
     duration_text = _format_duration(duration_min)
     distance_clause = f" ({distance_text}, {duration_text})" if distance_text and duration_text else ""
@@ -455,7 +460,7 @@ def _guidance_road_disruption(
     }
 
 
-def _guidance_schedule_disruption(notes: list[str]) -> Dict[str, Any]:
+def _guidance_schedule_disruption(notes: list[str]) -> dict[str, Any]:
     summary = " and ".join(notes)
     return {
         "reason": "schedule_disruption",
@@ -469,10 +474,10 @@ def _guidance_schedule_disruption(notes: list[str]) -> Dict[str, Any]:
 
 def _build_transport_guidance(
     *,
-    route_summary: Dict[str, Any] | None,
+    route_summary: dict[str, Any] | None,
     route_err: str | None,
-    disruptions: Dict[str, bool],
-) -> Dict[str, Any] | None:
+    disruptions: dict[str, bool],
+) -> dict[str, Any] | None:
     if route_err == "no_routes":
         return _guidance_no_routes()
 
@@ -505,7 +510,7 @@ def _build_transport_guidance(
     return None
 
 
-def _build_route_summary(route_plan: Dict[str, Any] | None) -> Dict[str, Any] | None:
+def _build_route_summary(route_plan: dict[str, Any] | None) -> dict[str, Any] | None:
     if not route_plan:
         return None
     routes = route_plan.get("routes") or []
@@ -526,7 +531,7 @@ def _build_route_summary(route_plan: Dict[str, Any] | None) -> Dict[str, Any] | 
     }
 
 
-def _build_midpoint_weather(route_plan: Dict[str, Any] | None, horizon: str) -> Dict[str, Any] | None:
+def _build_midpoint_weather(route_plan: dict[str, Any] | None, horizon: str) -> dict[str, Any] | None:
     if not route_plan:
         return None
     midpoint = route_plan.get("midpoint") or {}
@@ -546,11 +551,11 @@ def _build_midpoint_weather(route_plan: Dict[str, Any] | None, horizon: str) -> 
 def _get_transport_guidance(
     *,
     route_or_transport: bool,
-    destination_evidence: Dict[str, Any],
-    origin_evidence: Dict[str, Any],
-    route_summary: Dict[str, Any] | None,
+    destination_evidence: dict[str, Any],
+    origin_evidence: dict[str, Any],
+    route_summary: dict[str, Any] | None,
     route_err: str | None,
-) -> Dict[str, Any] | None:
+) -> dict[str, Any] | None:
     if not route_or_transport:
         return None
     disruptions = _collect_disruption_flags(destination_evidence, origin_evidence)
@@ -566,13 +571,13 @@ async def _resolve_with_search(
     *,
     place: str,
     question: str,
-    plan: Dict[str, Any],
-    base_evidence: Dict[str, Any],
+    plan: dict[str, Any],
+    base_evidence: dict[str, Any],
     build_query: Callable[[], str],
     run_reasoner: Callable[..., Any],
-    search_fn: Callable[[str, str], Tuple[List[Dict[str, Any]], str]],
-    enrich_evidence: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], Dict[str, Any]]] = None,
-) -> tuple[str, Dict[str, Any], str]:
+    search_fn: Callable[[str, str], tuple[list[dict[str, Any]], str]],
+    enrich_evidence: Callable[[dict[str, Any], list[dict[str, Any]]], dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any], str]:
     if plan.get("answered") and plan.get("answer"):
         final = str(plan.get("answer") or "")
         return final, base_evidence, final
@@ -600,9 +605,9 @@ async def answer_journey_question(
     *,
     route_or_transport: bool,
     latest_user_message: str = "",
-    conversation_history: Optional[List[Dict[str, str]]] = None,
-    pending_question: Optional[str] = None,
-) -> Dict[str, Any]:
+    conversation_history: list[dict[str, str]] | None = None,
+    pending_question: str | None = None,
+) -> dict[str, Any]:
     horizon = _detect_weather_horizon(pending_question or latest_user_message or question)
     destination_evidence = _gather_place_evidence(place, horizon)
     origin_evidence = _gather_place_evidence(origin, horizon)
@@ -672,10 +677,10 @@ async def answer_news_followup(
     llm: Any,
     place: str,
     question: str,
-    last_reply: Optional[str],
+    last_reply: str | None,
     *,
-    conversation_history: Optional[List[Dict[str, str]]] = None,
-) -> Dict[str, Any]:
+    conversation_history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     items, err = get_news_items(place)
     if err:
         final = f"I could not retrieve current news for {place} right now."
@@ -696,7 +701,8 @@ async def answer_news_followup(
     }
 
     plan = await _plan_followup_action(llm, place=place, question=question, evidence=current_evidence)
-    def _enrich_news_evidence(evidence: Dict[str, Any], items: List[Dict[str, Any]]) -> Dict[str, Any]:
+
+    def _enrich_news_evidence(evidence: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             **evidence,
             "used_targeted_search": True,
@@ -727,10 +733,10 @@ async def answer_general_followup(
     llm: Any,
     place: str,
     question: str,
-    last_reply: Optional[str],
+    last_reply: str | None,
     *,
-    conversation_history: Optional[List[Dict[str, str]]] = None,
-) -> Dict[str, Any]:
+    conversation_history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     place_evidence = _gather_place_evidence(place)
     matched_item = _match_news_item(question, last_reply, list(place_evidence.get("news_items") or []))
     current_evidence = {
@@ -747,7 +753,8 @@ async def answer_general_followup(
     }
 
     plan = await _plan_followup_action(llm, place=place, question=question, evidence=current_evidence)
-    def _enrich_general_evidence(evidence: Dict[str, Any], items: List[Dict[str, Any]]) -> Dict[str, Any]:
+
+    def _enrich_general_evidence(evidence: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             **evidence,
             "used_targeted_search": True,
@@ -771,7 +778,13 @@ async def answer_general_followup(
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
     final = _append_followup_link_if_needed(final, evidence, raw_final)
-    return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": [{"type": "weather"}, {"type": "news"}]}
+    return {
+        "place": place,
+        "final": final,
+        "risk_level": None,
+        "travel_advice": [],
+        "sources": [{"type": "weather"}, {"type": "news"}],
+    }
 
 
 async def answer_weather_followup(
@@ -779,8 +792,8 @@ async def answer_weather_followup(
     place: str,
     question: str,
     *,
-    conversation_history: Optional[List[Dict[str, str]]] = None,
-) -> Dict[str, Any]:
+    conversation_history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     horizon = _detect_weather_horizon(question)
     summary, _ = get_weather_summary(place, horizon)
     sources = [{"type": "weather"}]

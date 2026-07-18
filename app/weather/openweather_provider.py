@@ -1,13 +1,13 @@
 # app/weather/openweather_provider.py
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from app.http.http_utils import get_json_with_retry
 from app.settings import settings
 
 
-def get_weather_raw(place: str) -> Tuple[Dict[str, Any], str]:
+def get_weather_raw(place: str) -> tuple[dict[str, Any], str]:
     """
     Call OpenWeather current weather endpoint.
     URL is loaded from settings.openweather_current_url.
@@ -18,7 +18,7 @@ def get_weather_raw(place: str) -> Tuple[Dict[str, Any], str]:
     )
 
 
-def get_weather_line(place: str) -> Tuple[str, str]:
+def get_weather_line(place: str) -> tuple[str, str]:
     """
     Backwards-compatible one-line weather summary.
     """

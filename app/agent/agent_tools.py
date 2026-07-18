@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
-from pydantic import BaseModel
+from collections.abc import Mapping
+from typing import Any
+
 from langchain_core.tools import tool
+from pydantic import BaseModel
 
-from app.weather.weather_service import get_weather_line, get_weather_summary
 from app.news.news_service import get_news_items, search_news
-from app.travel_brief import build_travel_brief
 from app.routing.ors_service import plan_route
-
+from app.tooling.retry_rate_limit import ERROR_PREFIX, RateLimiter, is_error_result
 from app.tooling.sync_cache import (
     CACHE_TTL_SECONDS_DEFAULT,
     cache_get_json,
@@ -19,8 +19,8 @@ from app.tooling.sync_cache import (
     cache_set_str,
 )
 from app.tooling.text_normalize import normalize_text
-from app.tooling.retry_rate_limit import ERROR_PREFIX, RateLimiter, is_error_result
-
+from app.travel_brief import build_travel_brief
+from app.weather.weather_service import get_weather_line, get_weather_summary
 
 # -----------------------------
 # Global cache (Redis) for tools
@@ -39,7 +39,7 @@ news_rate = RateLimiter(2, 1.0)
 # -----------------------------
 class WeatherInput(BaseModel):
     place: str
-    horizon: Optional[str] = "today"
+    horizon: str | None = "today"
 
 
 class NewsInput(BaseModel):
@@ -48,13 +48,13 @@ class NewsInput(BaseModel):
 
 class NewsSearchInput(BaseModel):
     query: str
-    place_hint: Optional[str] = None
+    place_hint: str | None = None
 
 
 class RiskInput(BaseModel):
     place: str
-    horizon: Optional[str] = "today"
-    activity: Optional[str] = None
+    horizon: str | None = "today"
+    activity: str | None = None
 
 
 class TravelBriefInput(BaseModel):
@@ -64,7 +64,7 @@ class TravelBriefInput(BaseModel):
 class RoutePlanInput(BaseModel):
     origin: str
     destination: str
-    profiles: Optional[list[str]] = None
+    profiles: list[str] | None = None
 
 
 def _run(fn: Any) -> Any:
@@ -149,14 +149,14 @@ def _load_cached_news_items(place: str) -> list[dict[str, Any]]:
     return headlines or []
 
 
-def _extract_risk_reasons(brief: dict[str, Any]) -> list[str]:
+def _extract_risk_reasons(brief: Mapping[str, Any]) -> list[str]:
     reasons = list(dict.fromkeys((brief.get("weather_reasons") or []) + (brief.get("news_reasons") or [])))
     if not reasons:
         reasons = list(brief.get("travel_advice") or [])
     return reasons
 
 
-def _build_risk_message(level: str, reasons: list[str], activity: Optional[str]) -> str:
+def _build_risk_message(level: str, reasons: list[str], activity: str | None) -> str:
     msg = f"Risk level: {level}. "
     if reasons:
         msg += "Key factors: " + "; ".join(dict.fromkeys(reasons)) + "."
@@ -192,7 +192,7 @@ def travel_brief_tool(place: str) -> str:
 
 
 @tool(args_schema=WeatherInput)
-def weather_tool(place: str, horizon: Optional[str] = "today") -> str:
+def weather_tool(place: str, horizon: str | None = "today") -> str:
     """Get a concise weather summary for a specific place and time horizon."""
     hz = (horizon or "today").strip().lower()
     cache_key = f"cache:tool:weather_line:{normalize_text(place)}:{normalize_text(hz)}"
@@ -238,7 +238,7 @@ def news_tool(place: str) -> str:
 
 
 @tool(args_schema=NewsSearchInput)
-def news_search_tool(query: str, place_hint: Optional[str] = None) -> str:
+def news_search_tool(query: str, place_hint: str | None = None) -> str:
     """
     Run a targeted follow-up news search for a named issue and destination,
     such as 'PISTON strike Vigan', when the current snippets are insufficient.
@@ -271,12 +271,13 @@ def news_search_tool(query: str, place_hint: Optional[str] = None) -> str:
 def city_risk_tool(
     place: str,
     horizon: str = "today",
-    activity: Optional[str] = None,
+    activity: str | None = None,
 ) -> str:
     """
     Assess city risk level (LOW, MEDIUM, HIGH) for outdoor activity and also consider travel conditions
     based on forecasted weather and recent local news.
     """
+
     def call() -> str:
         weather_rate.acquire()
         news_rate.acquire()
@@ -295,7 +296,7 @@ def city_risk_tool(
 
 
 @tool(args_schema=RoutePlanInput)
-def route_planner_tool(origin: str, destination: str, profiles: Optional[list[str]] = None) -> str:
+def route_planner_tool(origin: str, destination: str, profiles: list[str] | None = None) -> str:
     """Plan a route between two locations using OpenRouteService and return distance/duration by mode."""
     origin_norm = normalize_text(origin) or "unknown"
     dest_norm = normalize_text(destination) or "unknown"

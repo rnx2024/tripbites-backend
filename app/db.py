@@ -1,11 +1,10 @@
 # app/db.py
 from __future__ import annotations
 
-import os
-from typing import Optional
 import asyncio
+import os
 
-_client: Optional[object] = None
+_client: object | None = None
 
 
 def _load_libsql():

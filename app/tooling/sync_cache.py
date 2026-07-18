@@ -2,20 +2,19 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any, cast
 
 import redis
 from redis.exceptions import RedisError
 
 from app.settings import settings
-from app.tooling.text_normalize import normalize_text
 
 CACHE_TTL_SECONDS_DEFAULT = 3600
 
-_sync_redis: Optional[redis.Redis] = None
+_sync_redis: redis.Redis | None = None
 
 
-def _get_sync_redis() -> Optional[redis.Redis]:
+def _get_sync_redis() -> redis.Redis | None:
     """
     Sync Redis client for LangGraph sync tool calls.
     Uses REDIS_URL. Safe to return None if misconfigured.
@@ -43,12 +42,14 @@ def _get_sync_redis() -> Optional[redis.Redis]:
         return None
 
 
-def cache_get_str(key: str) -> Optional[str]:
+def cache_get_str(key: str) -> str | None:
     r = _get_sync_redis()
     if r is None:
         return None
     try:
-        v = r.get(key)
+        # redis-py's stub returns Awaitable[Any] | Any because Redis supports both sync and
+        # async usage; decode_responses=True on this client guarantees a str at runtime here.
+        v = cast("str | None", r.get(key))
         return v if v is not None else None
     except RedisError:
         return None
@@ -64,7 +65,7 @@ def cache_set_str(key: str, value: str, ttl: int = CACHE_TTL_SECONDS_DEFAULT) ->
         return
 
 
-def cache_get_json(key: str) -> Optional[Any]:
+def cache_get_json(key: str) -> Any | None:
     raw = cache_get_str(key)
     if raw is None:
         return None

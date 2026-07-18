@@ -4,10 +4,10 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.settings import settings
-from app.session.session_keys import sess_key
 from app.agent.agent_policy import classify_answer_mode
+from app.main import app
+from app.session.session_keys import sess_key
+from app.settings import settings
 from tests.support.redis_fakes import FakeRedis
 
 
@@ -28,43 +28,45 @@ class OriginFlowE2ETests(unittest.TestCase):
             "sources": [{"type": "weather"}, {"type": "news"}],
         }
 
-        with patch("app.redis_client.redis", fake_redis):
-            with patch("app.session.session_store.redis", fake_redis):
-                with patch("app.redis_client.init_redis", new=AsyncMock(return_value=None)):
-                    with patch("app.redis_client.close_redis", new=AsyncMock(return_value=None)):
-                        with patch("app.agent.agent_service._resolve_answer_mode", new=resolve_mode_stub):
-                            with patch(
-                                "app.agent.agent_service._answer_journey_question",
-                                new=AsyncMock(return_value=journey_result),
-                            ) as journey_mock:
-                                client = TestClient(app)
-                                api_headers = {"x-api-key": settings.api_key}
-                                session_resp = client.post("/session", headers=api_headers)
-                                session_payload = session_resp.json()
-                                session_id = session_payload["session_id"]
-                                session_token = session_payload["session_token"]
-                                chat_headers = {
-                                    "x-api-key": settings.api_key,
-                                    "x-session-id": session_id,
-                                    "x-session-token": session_token,
-                                }
+        with (
+            patch("app.redis_client.redis", fake_redis),
+            patch("app.session.session_store.redis", fake_redis),
+            patch("app.redis_client.init_redis", new=AsyncMock(return_value=None)),
+            patch("app.redis_client.close_redis", new=AsyncMock(return_value=None)),
+            patch("app.agent.agent_service._resolve_answer_mode", new=resolve_mode_stub),
+            patch(
+                "app.agent.agent_service._answer_journey_question",
+                new=AsyncMock(return_value=journey_result),
+            ) as journey_mock,
+        ):
+            client = TestClient(app)
+            api_headers = {"x-api-key": settings.api_key}
+            session_resp = client.post("/session", headers=api_headers)
+            session_payload = session_resp.json()
+            session_id = session_payload["session_id"]
+            session_token = session_payload["session_token"]
+            chat_headers = {
+                "x-api-key": settings.api_key,
+                "x-session-id": session_id,
+                "x-session-token": session_token,
+            }
 
-                                first = client.post(
-                                    "/chat",
-                                    headers=chat_headers,
-                                    json={"place": "Vigan", "question": "So what is the best transpo to get there?"},
-                                )
-                                self.assertIn("where are you traveling from", first.json()["final"].lower())
+            first = client.post(
+                "/chat",
+                headers=chat_headers,
+                json={"place": "Vigan", "question": "So what is the best transpo to get there?"},
+            )
+            self.assertIn("where are you traveling from", first.json()["final"].lower())
 
-                                session_key = sess_key(session_id)
-                                fake_redis.hashes.get(session_key, {}).pop("pending_agent_context", None)
-                                fake_redis.hashes.get(session_key, {}).pop("pending_journey_question", None)
+            session_key = sess_key(session_id)
+            fake_redis.hashes.get(session_key, {}).pop("pending_agent_context", None)
+            fake_redis.hashes.get(session_key, {}).pop("pending_journey_question", None)
 
-                                second = client.post(
-                                    "/chat",
-                                    headers=chat_headers,
-                                    json={"place": "Vigan", "question": "I am from Manila"},
-                                )
+            second = client.post(
+                "/chat",
+                headers=chat_headers,
+                json={"place": "Vigan", "question": "I am from Manila"},
+            )
 
         self.assertEqual(second.json()["final"], "From Manila, land travel is practical.")
         journey_mock.assert_awaited()

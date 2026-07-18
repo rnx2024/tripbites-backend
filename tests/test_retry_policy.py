@@ -3,12 +3,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
+from retryguard.integrations.tenacity import wait_retryguard
 
 from app.http.http_client import get_json_with_retry
 from app.routing import ors_service
 from app.tooling.retry_policy import classifier
 from app.weather import openmeteo_provider
-from retryguard.integrations.tenacity import wait_retryguard
 
 
 def _http_error(status: int, headers: dict | None = None) -> httpx.HTTPStatusError:
@@ -146,17 +146,21 @@ class OrsServiceRetryTests(unittest.TestCase):
             200,
             json_data={"features": [{"properties": {"summary": {"distance": 1000, "duration": 600}}}]},
         )
-        with patch("app.settings.settings.ors_api", "fake-key"):
-            with patch("httpx.get", side_effect=_fake_get_sequence(FakeResponse(503), good)) as mock_get:
-                route, err = ors_service._fetch_route("driving-car", (0.0, 0.0), (1.0, 1.0))
+        with (
+            patch("app.settings.settings.ors_api", "fake-key"),
+            patch("httpx.get", side_effect=_fake_get_sequence(FakeResponse(503), good)) as mock_get,
+        ):
+            route, _ = ors_service._fetch_route("driving-car", (0.0, 0.0), (1.0, 1.0))
 
         self.assertIsNotNone(route)
         self.assertEqual(mock_get.call_count, 2)
 
     def test_fetch_route_does_not_retry_client_error(self, _sleep) -> None:
-        with patch("app.settings.settings.ors_api", "fake-key"):
-            with patch("httpx.get", side_effect=_fake_get_sequence(FakeResponse(404))) as mock_get:
-                route, err = ors_service._fetch_route("driving-car", (0.0, 0.0), (1.0, 1.0))
+        with (
+            patch("app.settings.settings.ors_api", "fake-key"),
+            patch("httpx.get", side_effect=_fake_get_sequence(FakeResponse(404))) as mock_get,
+        ):
+            route, err = ors_service._fetch_route("driving-car", (0.0, 0.0), (1.0, 1.0))
 
         self.assertIsNone(route)
         self.assertEqual(err, "404")
@@ -171,14 +175,14 @@ class OpenMeteoProviderRetryTests(unittest.TestCase):
             json_data={"results": [{"name": "Cebu", "country": "PH", "latitude": 10.3, "longitude": 123.9}]},
         )
         with patch("httpx.get", side_effect=_fake_get_sequence(FakeResponse(500), good)) as mock_get:
-            loc, err = openmeteo_provider.geocode_place("Cebu")
+            loc, _ = openmeteo_provider.geocode_place("Cebu")
 
         self.assertIsNotNone(loc)
         self.assertEqual(mock_get.call_count, 2)
 
     def test_geocode_place_does_not_retry_client_error(self, _sleep) -> None:
         with patch("httpx.get", side_effect=_fake_get_sequence(FakeResponse(404))) as mock_get:
-            loc, err = openmeteo_provider.geocode_place("Cebu")
+            loc, _ = openmeteo_provider.geocode_place("Cebu")
 
         self.assertIsNone(loc)
         self.assertEqual(mock_get.call_count, 1)

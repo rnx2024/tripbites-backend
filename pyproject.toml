@@ -29,7 +29,41 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
 ]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "S"]
+ignore = [
+    "S101",  # assert is expected in tests (pytest/unittest use assert or self.assert*)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S101",  # assert is expected in tests (pytest/unittest use assert or self.assert*)
+    "S105", "S106",  # test fixture literals that look like secrets aren't real credentials
+    "E501",  # long lines are mock/fixture string literals; wrapping would change asserted content
+]
+"tests/test_agent_service.py" = [
+    "SIM117",  # each test stacks 5-8 unittest.mock.patch context managers; combining into one
+               # `with (...)` would produce an unreadable single block, so nesting is kept for clarity
+]
+"app/agent/agent_prompts.py" = ["E501"]  # long lines are LLM prompt copy; wrapping would alter prompt text
+"app/agent/agent_service.py" = ["E501"]  # long lines are LLM prompt/policy copy; wrapping would alter prompt text
+"app/travel_concern_assessor.py" = ["E501"]  # long lines are LLM instruction copy; wrapping would alter prompt text
+"app/main.py" = ["E501"]  # FastAPI `description=` copy; the ruff formatter re-joins any manual split anyway

@@ -2,37 +2,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import Any, cast
 
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
-from app.settings import settings
-from app.agent.agent_tools import weather_tool, news_tool, news_search_tool, city_risk_tool, travel_brief_tool
-from app.agent.agent_prompts import ANSWER_MODE_ROUTER_SYSTEM_PROMPT, LOCAL_INTELLIGENCE_SYSTEM_PROMPT
-from app.agent.followup_qa import (
-    answer_general_followup as _answer_general_followup,
-    answer_journey_question as _answer_journey_question,
-    answer_news_followup as _answer_news_followup,
-    answer_weather_followup as _answer_weather_followup,
-)
-
-# session memory (Redis-backed)
-from app.session.session_cache import (
-    get_active_destination,
-    get_active_origin,
-    get_last_exchange,
-    get_pending_agent_context,
-    get_recent_turns,
-    get_pending_journey_question,
-    mark_tools_called,
-    set_active_destination,
-    set_active_origin,
-    set_pending_agent_context,
-    set_pending_journey_question,
-    should_include,
-)
 from app.agent.agent_policy import (
     AnswerMode,
     asks_route_or_transport,
@@ -45,7 +20,37 @@ from app.agent.agent_policy import (
     needs_followup_reference_clarification,
     needs_origin_clarification,
 )
+from app.agent.agent_prompts import ANSWER_MODE_ROUTER_SYSTEM_PROMPT, LOCAL_INTELLIGENCE_SYSTEM_PROMPT
+from app.agent.agent_tools import city_risk_tool, news_search_tool, news_tool, travel_brief_tool, weather_tool
+from app.agent.followup_qa import (
+    answer_general_followup as _answer_general_followup,
+)
+from app.agent.followup_qa import (
+    answer_journey_question as _answer_journey_question,
+)
+from app.agent.followup_qa import (
+    answer_news_followup as _answer_news_followup,
+)
+from app.agent.followup_qa import (
+    answer_weather_followup as _answer_weather_followup,
+)
 
+# session memory (Redis-backed)
+from app.session.session_cache import (
+    get_active_destination,
+    get_active_origin,
+    get_last_exchange,
+    get_pending_agent_context,
+    get_pending_journey_question,
+    get_recent_turns,
+    mark_tools_called,
+    set_active_destination,
+    set_active_origin,
+    set_pending_agent_context,
+    set_pending_journey_question,
+    should_include,
+)
+from app.settings import settings
 
 # -----------------------------------------------------
 # LLM + tools
@@ -60,7 +65,7 @@ _llm = ChatOpenAI(
 # -----------------------------------------------------
 # Tool-gated helpers
 # -----------------------------------------------------
-_REACT_APP_CACHE: Dict[Tuple[bool, bool], Any] = {}
+_REACT_APP_CACHE: dict[tuple[bool, bool], Any] = {}
 
 
 def _get_react_app(include_weather: bool, include_news: bool):
@@ -81,23 +86,20 @@ def _get_react_app(include_weather: bool, include_news: bool):
     return app
 
 
-def _build_user_prompt(place: str, question: Optional[str], origin: Optional[str] = None) -> str:
+def _build_user_prompt(place: str, question: str | None, origin: str | None = None) -> str:
     if not question:
         return (
             "Provide a concise travel brief for the destination below. Focus on travel conditions, likely disruptions, "
             f"and what matters most for someone going there today: {place}."
         )
-    parts = [
-        f"Location: {place}\n"
-        f"Question: {question}\n"
-    ]
+    parts = [f"Location: {place}\nQuestion: {question}\n"]
     if origin:
         parts.append(f"Journey origin: {origin}\n")
     parts.append("Answer as ONE concise travel-oriented paragraph, plain text.")
     return "".join(parts)
 
 
-def _format_recent_turns(recent_turns: List[Dict[str, str]]) -> List[str]:
+def _format_recent_turns(recent_turns: list[dict[str, str]]) -> list[str]:
     if not recent_turns:
         return []
 
@@ -114,13 +116,13 @@ def _format_recent_turns(recent_turns: List[Dict[str, str]]) -> List[str]:
 
 def _has_same_destination_followup(
     *,
-    question: Optional[str],
+    question: str | None,
     place: str,
-    active_destination: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
-    pending_agent_context: Optional[Dict[str, str]],
-    pending_journey_question: Optional[str],
+    active_destination: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
+    pending_agent_context: dict[str, str] | None,
+    pending_journey_question: str | None,
 ) -> bool:
     if not question or active_destination != place:
         return False
@@ -133,10 +135,10 @@ def _has_same_destination_followup(
 
 async def _resolve_answer_mode(
     *,
-    question: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
-    pending_agent_context: Optional[Dict[str, str]],
+    question: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
+    pending_agent_context: dict[str, str] | None,
     place: str,
 ) -> AnswerMode:
     fallback = classify_answer_mode(question, last_reply)
@@ -170,7 +172,7 @@ async def _resolve_answer_mode(
     return fallback
 
 
-def _extract_final_message(messages: List[BaseMessage]) -> str:
+def _extract_final_message(messages: list[BaseMessage]) -> str:
     final_text = ""
     for msg in messages:
         if isinstance(msg, AIMessage) and msg.content:
@@ -178,8 +180,8 @@ def _extract_final_message(messages: List[BaseMessage]) -> str:
     return final_text or ""
 
 
-def _collect_tool_calls(messages: List[BaseMessage]) -> Dict[str, Dict[str, Any]]:
-    pending: Dict[str, Dict[str, Any]] = {}
+def _collect_tool_calls(messages: list[BaseMessage]) -> dict[str, dict[str, Any]]:
+    pending: dict[str, dict[str, Any]] = {}
     for msg in messages:
         if not (isinstance(msg, AIMessage) and msg.tool_calls):
             continue
@@ -195,7 +197,7 @@ def _collect_tool_calls(messages: List[BaseMessage]) -> Dict[str, Dict[str, Any]
     return pending
 
 
-def _attach_tool_observations(messages: List[BaseMessage], pending: Dict[str, Dict[str, Any]]) -> None:
+def _attach_tool_observations(messages: list[BaseMessage], pending: dict[str, dict[str, Any]]) -> None:
     if not pending:
         return
     for msg in messages:
@@ -206,14 +208,14 @@ def _attach_tool_observations(messages: List[BaseMessage], pending: Dict[str, Di
             pending[call_id]["observation"] = msg.content
 
 
-def _build_debug(messages: List[BaseMessage]) -> List[Dict[str, Any]]:
+def _build_debug(messages: list[BaseMessage]) -> list[dict[str, Any]]:
     pending_tools = _collect_tool_calls(messages)
     _attach_tool_observations(messages, pending_tools)
     return list(pending_tools.values())
 
 
-def _extract_called_tools(messages: List[BaseMessage]) -> Set[str]:
-    called: Set[str] = set()
+def _extract_called_tools(messages: list[BaseMessage]) -> set[str]:
+    called: set[str] = set()
     for msg in messages:
         if isinstance(msg, AIMessage) and msg.tool_calls:
             for tc in msg.tool_calls:
@@ -223,13 +225,13 @@ def _extract_called_tools(messages: List[BaseMessage]) -> Set[str]:
     return called
 
 
-def _extract_tool_outputs(messages: List[BaseMessage]) -> Dict[str, str]:
+def _extract_tool_outputs(messages: list[BaseMessage]) -> dict[str, str]:
     tool_names_by_call_id = _tool_names_by_call_id(messages)
     return _tool_outputs_from_messages(messages, tool_names_by_call_id)
 
 
-def _tool_names_by_call_id(messages: List[BaseMessage]) -> Dict[str, str]:
-    tool_names_by_call_id: Dict[str, str] = {}
+def _tool_names_by_call_id(messages: list[BaseMessage]) -> dict[str, str]:
+    tool_names_by_call_id: dict[str, str] = {}
     for msg in messages:
         if isinstance(msg, AIMessage) and msg.tool_calls:
             for tc in msg.tool_calls:
@@ -241,10 +243,10 @@ def _tool_names_by_call_id(messages: List[BaseMessage]) -> Dict[str, str]:
 
 
 def _tool_outputs_from_messages(
-    messages: List[BaseMessage],
-    tool_names_by_call_id: Dict[str, str],
-) -> Dict[str, str]:
-    outputs: Dict[str, str] = {}
+    messages: list[BaseMessage],
+    tool_names_by_call_id: dict[str, str],
+) -> dict[str, str]:
+    outputs: dict[str, str] = {}
     for msg in messages:
         if not isinstance(msg, ToolMessage):
             continue
@@ -257,7 +259,7 @@ def _tool_outputs_from_messages(
     return outputs
 
 
-def _extract_structured_brief(messages: List[BaseMessage], place: str) -> Dict[str, Any]:
+def _extract_structured_brief(messages: list[BaseMessage], place: str) -> dict[str, Any]:
     tool_outputs = _extract_tool_outputs(messages)
     raw_brief = tool_outputs.get("travel_brief_tool")
     if raw_brief:
@@ -296,13 +298,13 @@ def _build_policy_lines(
     answer_mode: AnswerMode,
     include_weather: bool,
     include_news: bool,
-    last_user: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
-    origin: Optional[str] = None,
+    last_user: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
+    origin: str | None = None,
     route_or_transport: bool = False,
-) -> List[str]:
-    policy_lines: List[str] = ["Policy:", f"- Selected location: {place}"]
+) -> list[str]:
+    policy_lines: list[str] = ["Policy:", f"- Selected location: {place}"]
     if not include_weather:
         policy_lines.append("- Do NOT call weather_tool or include weather unless explicitly asked.")
     if not include_news:
@@ -385,11 +387,11 @@ async def _reset_session_for_destination_change(
     *,
     session_id: str,
     place: str,
-    active_destination: Optional[str],
-    recent_turns: List[Dict[str, str]],
-    pending_agent_context: Optional[Dict[str, str]],
-    pending_journey_question: Optional[str],
-) -> tuple[List[Dict[str, str]], Optional[Dict[str, str]], Optional[str]]:
+    active_destination: str | None,
+    recent_turns: list[dict[str, str]],
+    pending_agent_context: dict[str, str] | None,
+    pending_journey_question: str | None,
+) -> tuple[list[dict[str, str]], dict[str, str] | None, str | None]:
     if active_destination and active_destination != place:
         await set_pending_agent_context(session_id, None)
         await set_pending_journey_question(session_id, None)
@@ -397,7 +399,7 @@ async def _reset_session_for_destination_change(
     return recent_turns, pending_agent_context, pending_journey_question
 
 
-def _apply_active_origin(origin: Optional[str], active_origin: Optional[str], question: Optional[str]) -> Optional[str]:
+def _apply_active_origin(origin: str | None, active_origin: str | None, question: str | None) -> str | None:
     if origin:
         return origin
     if active_origin and question and (is_journey_planning_question(question) or asks_route_or_transport(question)):
@@ -407,13 +409,13 @@ def _apply_active_origin(origin: Optional[str], active_origin: Optional[str], qu
 
 def _resolve_origin_context(
     *,
-    question: Optional[str],
-    last_reply: Optional[str],
-    last_user: Optional[str],
-    pending_agent_context: Optional[Dict[str, str]],
-    pending_journey_question: Optional[str],
-    active_origin: Optional[str],
-) -> tuple[Optional[str], Optional[str], bool, Optional[str]]:
+    question: str | None,
+    last_reply: str | None,
+    last_user: str | None,
+    pending_agent_context: dict[str, str] | None,
+    pending_journey_question: str | None,
+    active_origin: str | None,
+) -> tuple[str | None, str | None, bool, str | None]:
     origin = extract_origin(question, last_reply)
     origin = _apply_active_origin(origin, active_origin, question)
     pending_question = (pending_agent_context or {}).get("question")
@@ -442,11 +444,11 @@ def _resolve_origin_context(
 
 def _finalize_origin(
     *,
-    origin: Optional[str],
-    effective_question: Optional[str],
-    last_reply: Optional[str],
-    active_origin: Optional[str],
-) -> Optional[str]:
+    origin: str | None,
+    effective_question: str | None,
+    last_reply: str | None,
+    active_origin: str | None,
+) -> str | None:
     origin = origin or extract_origin(effective_question, last_reply)
     return _apply_active_origin(origin, active_origin, effective_question)
 
@@ -455,10 +457,10 @@ async def _finalize_result(
     *,
     session_id: str,
     place: str,
-    question: Optional[str],
-    result: Dict[str, Any],
+    question: str | None,
+    result: dict[str, Any],
     debug: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     await mark_tools_called(
         session_id,
         tool_names=[],
@@ -475,10 +477,10 @@ async def _maybe_handle_followup_reference(
     *,
     session_id: str,
     place: str,
-    question: Optional[str],
-    last_reply: Optional[str],
+    question: str | None,
+    last_reply: str | None,
     debug: bool,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     if not needs_followup_reference_clarification(question, last_reply):
         return None
 
@@ -489,7 +491,7 @@ async def _maybe_handle_followup_reference(
         user_message=question,
         agent_reply=clarification,
     )
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "place": place,
         "final": clarification,
         "risk_level": None,
@@ -505,13 +507,13 @@ async def _maybe_handle_followup_modes(
     *,
     session_id: str,
     place: str,
-    question: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
+    question: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
     answer_mode: AnswerMode,
     same_destination_followup: bool,
     debug: bool,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     if answer_mode == "news_followup":
         result = await _answer_news_followup(
             _llm,
@@ -570,16 +572,16 @@ async def _maybe_handle_journey_mode(
     *,
     session_id: str,
     place: str,
-    question: Optional[str],
-    effective_question: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
-    pending_question: Optional[str],
+    question: str | None,
+    effective_question: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
+    pending_question: str | None,
     answer_mode: AnswerMode,
-    origin: Optional[str],
+    origin: str | None,
     route_or_transport: bool,
     debug: bool,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     if answer_mode == "journey_planning" and needs_origin_clarification(question, last_reply):
         clarification = (
             f"I can assess conditions in {place}, but I need your departure location to judge the trip itself. "
@@ -595,7 +597,7 @@ async def _maybe_handle_journey_mode(
             },
         )
         await set_pending_journey_question(session_id, question)
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "place": place,
             "final": clarification,
             "risk_level": None,
@@ -652,17 +654,17 @@ async def _handle_pre_agent_paths(
     *,
     session_id: str,
     place: str,
-    question: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
+    question: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
     answer_mode: AnswerMode,
     same_destination_followup: bool,
-    effective_question: Optional[str],
-    pending_question: Optional[str],
-    origin: Optional[str],
+    effective_question: str | None,
+    pending_question: str | None,
+    origin: str | None,
     route_or_transport: bool,
     debug: bool,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     result = await _maybe_handle_followup_reference(
         session_id=session_id,
         place=place,
@@ -705,16 +707,16 @@ async def _run_broad_agent(
     *,
     session_id: str,
     place: str,
-    question: Optional[str],
-    effective_question: Optional[str],
-    origin: Optional[str],
+    question: str | None,
+    effective_question: str | None,
+    origin: str | None,
     answer_mode: AnswerMode,
     route_or_transport: bool,
-    last_user: Optional[str],
-    last_reply: Optional[str],
-    recent_turns: List[Dict[str, str]],
+    last_user: str | None,
+    last_reply: str | None,
+    recent_turns: list[dict[str, str]],
     debug: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     user_prompt = _build_user_prompt(place, effective_question, origin)
 
     include_weather, include_news = decide_tool_includes(effective_question)
@@ -745,7 +747,7 @@ async def _run_broad_agent(
 
     user_prompt = "\n".join(policy_lines) + "\n\n---\n\n" + user_prompt
     app = _get_react_app(include_weather=include_weather, include_news=include_news)
-    state: Dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
+    state: dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
     messages = state.get("messages", []) or []
     final_text = _extract_final_message(messages)
 
@@ -759,12 +761,10 @@ async def _run_broad_agent(
     await set_active_destination(session_id, place)
 
     brief = _extract_structured_brief(messages, place)
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "place": str(brief.get("place") or place),
         "final": final_text or str(brief.get("final") or ""),
-        "risk_level": (
-            str(brief.get("risk_level") or "low") if answer_mode == "travel_brief" else None
-        ),
+        "risk_level": (str(brief.get("risk_level") or "low") if answer_mode == "travel_brief" else None),
         "travel_advice": cast(list[str], brief.get("travel_advice") or []) if answer_mode == "travel_brief" else [],
         "sources": cast(list[dict[str, str]], brief.get("sources") or []),
     }
@@ -780,9 +780,9 @@ async def run_agent(
     *,
     session_id: str,
     place: str,
-    question: Optional[str] = None,
+    question: str | None = None,
     debug: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run the LangGraph ReAct agent with tool gating per request.
     """

@@ -23,9 +23,11 @@ class TavilySearchFetcherTests(unittest.TestCase):
         response.json.return_value = payload
         response.raise_for_status.return_value = None
 
-        with patch("app.news.tavily_search_fetcher.settings.tavily_api", "test-key"):
-            with patch("app.news.tavily_search_fetcher.httpx.post", return_value=response) as post_mock:
-                items, err = search_tavily("IRONMAN 70.3 Davao schedule", "Davao")
+        with (
+            patch("app.news.tavily_search_fetcher.settings.tavily_api", "test-key"),
+            patch("app.news.tavily_search_fetcher.httpx.post", return_value=response) as post_mock,
+        ):
+            items, err = search_tavily("IRONMAN 70.3 Davao schedule", "Davao")
 
         self.assertEqual(err, "")
         self.assertEqual(len(items), 1)
@@ -44,7 +46,18 @@ class TavilySearchFetcherTests(unittest.TestCase):
         self.assertEqual(err, "missing_tavily_api")
 
     def test_search_news_uses_tavily_provider(self) -> None:
-        expected = ([{"title": "Result", "source": "example.com", "date": None, "link": "https://example.com", "snippet": "snippet"}], "")
+        expected = (
+            [
+                {
+                    "title": "Result",
+                    "source": "example.com",
+                    "date": None,
+                    "link": "https://example.com",
+                    "snippet": "snippet",
+                }
+            ],
+            "",
+        )
         with patch("app.news.news_service.search_tavily", return_value=expected) as search_mock:
             items, err = search_news("cash aid weekend", "Manila")
 
@@ -59,9 +72,11 @@ class TavilySearchFetcherTests(unittest.TestCase):
         failing = Mock()
         failing.raise_for_status.side_effect = error
 
-        with patch("app.news.tavily_search_fetcher.settings.tavily_api", "test-key"):
-            with patch("app.news.tavily_search_fetcher.httpx.post", return_value=failing):
-                items, err = search_tavily("Davao event schedule")
+        with (
+            patch("app.news.tavily_search_fetcher.settings.tavily_api", "test-key"),
+            patch("app.news.tavily_search_fetcher.httpx.post", return_value=failing),
+        ):
+            items, err = search_tavily("Davao event schedule")
 
         self.assertEqual(items, [])
         self.assertEqual(err, "500")
