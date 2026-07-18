@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple
 import httpx
 
 from app.settings import settings
+from app.tooling.retry_policy import build_http_retry
 from app.weather.openmeteo_provider import geocode_place
 
 log = logging.getLogger(__name__)
@@ -49,9 +50,14 @@ def _fetch_route(profile: str, start: Tuple[float, float], end: Tuple[float, flo
     }
     headers = {"Authorization": settings.ors_api}
 
-    try:
+    @build_http_retry()
+    def _get() -> httpx.Response:
         response = httpx.get(url, params=params, headers=headers, timeout=10.0)
         response.raise_for_status()
+        return response
+
+    try:
+        response = _get()
     except httpx.TimeoutException:
         return None, "timeout"
     except httpx.HTTPStatusError as exc:
