@@ -708,6 +708,23 @@ async def _handle_pre_agent_paths(
     )
 
 
+async def _invoke_agent_graph(
+    app: Any,
+    user_prompt: str,
+    *,
+    session_id: str,
+    place: str,
+) -> tuple[dict[str, Any], float]:
+    start = time.monotonic()
+    try:
+        state: dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
+    except Exception:
+        log.exception("agent.llm_invoke.failed", session_id=session_id, place=place)
+        raise
+    duration_ms = round((time.monotonic() - start) * 1000, 1)
+    return state, duration_ms
+
+
 async def _run_broad_agent(
     *,
     session_id: str,
@@ -753,13 +770,7 @@ async def _run_broad_agent(
     user_prompt = "\n".join(policy_lines) + "\n\n---\n\n" + user_prompt
     app = _get_react_app(include_weather=include_weather, include_news=include_news)
 
-    start = time.monotonic()
-    try:
-        state: dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
-    except Exception:
-        log.exception("agent.llm_invoke.failed", session_id=session_id, place=place)
-        raise
-    duration_ms = round((time.monotonic() - start) * 1000, 1)
+    state, duration_ms = await _invoke_agent_graph(app, user_prompt, session_id=session_id, place=place)
 
     messages = state.get("messages", []) or []
     final_text = _extract_final_message(messages)
