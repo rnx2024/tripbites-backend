@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.settings import settings
+from app.tooling.retry_policy import build_http_retry
 
 log = logging.getLogger(__name__)
 
@@ -58,26 +59,29 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
     if place_hint:
         payload["query"] = f"{query} {place_hint}".strip()
 
-    last_err = ""
-    for attempt in range(1, _RETRIES + 1):
-        try:
-            response = httpx.post(settings.tavily_search_url, json=payload, timeout=_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            data = response.json()
-            results = data.get("results") or []
-            return _normalize_tavily_results(results), ""
-        except httpx.TimeoutException:
-            last_err = "timeout"
-            log.warning("Timeout from Tavily [attempt %s/%s]", attempt, _RETRIES)
-        except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code if exc.response is not None else "unknown"
-            last_err = str(status)
-            log.error("HTTP %s from Tavily [attempt %s/%s]", status, attempt, _RETRIES)
-        except httpx.RequestError as exc:
-            last_err = str(exc)
-            log.error("Request error from Tavily [attempt %s/%s]: %s", attempt, _RETRIES, exc)
-        except ValueError:
-            last_err = "invalid_json"
-            log.error("Invalid JSON from Tavily [attempt %s/%s]", attempt, _RETRIES)
+    @build_http_retry(max_attempts=_RETRIES)
+    def _post() -> httpx.Response:
+        response = httpx.post(settings.tavily_search_url, json=payload, timeout=_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        return response
 
-    return [], last_err
+    try:
+        response = _post()
+    except httpx.TimeoutException:
+        log.warning("Timeout from Tavily after %s attempt(s)", _RETRIES)
+        return [], "timeout"
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        log.error("HTTP %s from Tavily after %s attempt(s)", status, _RETRIES)
+        return [], str(status)
+    except httpx.RequestError as exc:
+        log.exception("Request error from Tavily after %s attempt(s)", _RETRIES)
+        return [], str(exc)
+
+    try:
+        data = response.json()
+    except ValueError:
+        log.error("Invalid JSON from Tavily")
+        return [], "invalid_json"
+
+    return _normalize_tavily_results(data.get("results") or []), ""

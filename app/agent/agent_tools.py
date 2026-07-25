@@ -5,6 +5,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+import structlog
 from langchain_core.tools import tool
 from pydantic import BaseModel
 
@@ -21,6 +22,8 @@ from app.tooling.sync_cache import (
 from app.tooling.text_normalize import normalize_text
 from app.travel_brief import build_travel_brief
 from app.weather.weather_service import get_weather_line, get_weather_summary
+
+log = structlog.get_logger(__name__)
 
 # -----------------------------
 # Global cache (Redis) for tools
@@ -76,6 +79,7 @@ def _run(fn: Any) -> Any:
     try:
         return fn()
     except Exception as e:
+        log.warning("agent_tool.call_failed", error=str(e))
         return f"{ERROR_PREFIX}{e}"
 
 

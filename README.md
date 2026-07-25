@@ -127,6 +127,6 @@ uv run pytest            # run the test suite
 
 ## Deployment
 
-Deployed as a Docker container on [Render](https://render.com) (see `Dockerfile`; Render assigns the port via `$PORT`, but the container currently binds `8080` directly — confirm this matches your Render service's configured port).
+Deployed as a Docker container on [Render](https://render.com) (see `Dockerfile`; the container binds to `$PORT` if set, falling back to `8080` for local runs).
 
 **Important:** set `ENV=production` in the Render service's environment variables. This is what disables `/docs`, `/redoc`, and `/openapi.json` in production — without it, the API docs stay publicly exposed.
