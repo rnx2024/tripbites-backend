@@ -70,7 +70,16 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 allowed_origins = [origin.strip() for origin in settings.frontend_cors_origin.split(",")]
 
 # ---------------------------------------------------------
+# Request-ID correlation (binds a per-request ID into every
+# structlog/log line and echoes it back as X-Request-ID)
+# ---------------------------------------------------------
+app.add_middleware(RequestIDMiddleware)
+
+# ---------------------------------------------------------
 # CORS CONFIGURATION
+# Registered last so it is the outermost middleware layer and
+# applies to every response, including errors raised by other
+# middleware or before a route handler is reached.
 # ---------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -79,12 +88,6 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "x-api-key", "x-session-id", "x-session-token"],
 )
-
-# ---------------------------------------------------------
-# Request-ID correlation (binds a per-request ID into every
-# structlog/log line and echoes it back as X-Request-ID)
-# ---------------------------------------------------------
-app.add_middleware(RequestIDMiddleware)
 
 # ---------------------------------------------------------
 # Mount API routes AFTER adding CORS
