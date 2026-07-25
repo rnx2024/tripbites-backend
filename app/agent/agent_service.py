@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, cast
 
+import structlog
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -34,6 +36,7 @@ from app.agent.followup_qa import (
 from app.agent.followup_qa import (
     answer_weather_followup as _answer_weather_followup,
 )
+from app.session.errors import SessionStoreUnavailable
 
 # session memory (Redis-backed)
 from app.session.session_cache import (
@@ -51,6 +54,8 @@ from app.session.session_cache import (
     should_include,
 )
 from app.settings import settings
+
+log = structlog.get_logger(__name__)
 
 # -----------------------------------------------------
 # LLM + tools
@@ -747,11 +752,26 @@ async def _run_broad_agent(
 
     user_prompt = "\n".join(policy_lines) + "\n\n---\n\n" + user_prompt
     app = _get_react_app(include_weather=include_weather, include_news=include_news)
-    state: dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
+
+    start = time.monotonic()
+    try:
+        state: dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
+    except Exception:
+        log.exception("agent.llm_invoke.failed", session_id=session_id, place=place)
+        raise
+    duration_ms = round((time.monotonic() - start) * 1000, 1)
+
     messages = state.get("messages", []) or []
     final_text = _extract_final_message(messages)
 
     called_tools = _extract_called_tools(messages)
+    log.info(
+        "agent.llm_invoke.completed",
+        session_id=session_id,
+        place=place,
+        duration_ms=duration_ms,
+        called_tools=sorted(called_tools),
+    )
     await mark_tools_called(
         session_id,
         tool_names=called_tools,
@@ -786,85 +806,92 @@ async def run_agent(
     """
     Run the LangGraph ReAct agent with tool gating per request.
     """
-    last_user, last_reply = await get_last_exchange(session_id)
-    recent_turns = await get_recent_turns(session_id)
-    active_destination = await get_active_destination(session_id)
-    active_origin = await get_active_origin(session_id)
-    pending_agent_context = await get_pending_agent_context(session_id)
-    pending_journey_question = await get_pending_journey_question(session_id)
-    recent_turns, pending_agent_context, pending_journey_question = await _reset_session_for_destination_change(
-        session_id=session_id,
-        place=place,
-        active_destination=active_destination,
-        recent_turns=recent_turns,
-        pending_agent_context=pending_agent_context,
-        pending_journey_question=pending_journey_question,
-    )
-    origin, effective_question, awaiting_origin, pending_question = _resolve_origin_context(
-        question=question,
-        last_reply=last_reply,
-        last_user=last_user,
-        pending_agent_context=pending_agent_context,
-        pending_journey_question=pending_journey_question,
-        active_origin=active_origin,
-    )
-    same_destination_followup = _has_same_destination_followup(
-        question=question,
-        place=place,
-        active_destination=active_destination,
-        last_reply=last_reply,
-        recent_turns=recent_turns,
-        pending_agent_context=pending_agent_context,
-        pending_journey_question=pending_journey_question,
-    )
+    log.info("agent.request.received", session_id=session_id, place=place, has_question=bool(question))
+    try:
+        last_user, last_reply = await get_last_exchange(session_id)
+        recent_turns = await get_recent_turns(session_id)
+        active_destination = await get_active_destination(session_id)
+        active_origin = await get_active_origin(session_id)
+        pending_agent_context = await get_pending_agent_context(session_id)
+        pending_journey_question = await get_pending_journey_question(session_id)
+        recent_turns, pending_agent_context, pending_journey_question = await _reset_session_for_destination_change(
+            session_id=session_id,
+            place=place,
+            active_destination=active_destination,
+            recent_turns=recent_turns,
+            pending_agent_context=pending_agent_context,
+            pending_journey_question=pending_journey_question,
+        )
+        origin, effective_question, awaiting_origin, pending_question = _resolve_origin_context(
+            question=question,
+            last_reply=last_reply,
+            last_user=last_user,
+            pending_agent_context=pending_agent_context,
+            pending_journey_question=pending_journey_question,
+            active_origin=active_origin,
+        )
+        same_destination_followup = _has_same_destination_followup(
+            question=question,
+            place=place,
+            active_destination=active_destination,
+            last_reply=last_reply,
+            recent_turns=recent_turns,
+            pending_agent_context=pending_agent_context,
+            pending_journey_question=pending_journey_question,
+        )
 
-    answer_mode = await _resolve_answer_mode(
-        question=effective_question,
-        last_reply=last_reply,
-        recent_turns=recent_turns,
-        pending_agent_context=pending_agent_context,
-        place=place,
-    )
-    if awaiting_origin and origin and (pending_agent_context or {}).get("mode") == "journey_planning":
-        answer_mode = "journey_planning"
+        answer_mode = await _resolve_answer_mode(
+            question=effective_question,
+            last_reply=last_reply,
+            recent_turns=recent_turns,
+            pending_agent_context=pending_agent_context,
+            place=place,
+        )
+        if awaiting_origin and origin and (pending_agent_context or {}).get("mode") == "journey_planning":
+            answer_mode = "journey_planning"
 
-    origin = _finalize_origin(
-        origin=origin,
-        effective_question=effective_question,
-        last_reply=last_reply,
-        active_origin=active_origin,
-    )
-    if origin:
-        await set_active_origin(session_id, origin)
-    route_or_transport = asks_route_or_transport(effective_question)
+        origin = _finalize_origin(
+            origin=origin,
+            effective_question=effective_question,
+            last_reply=last_reply,
+            active_origin=active_origin,
+        )
+        if origin:
+            await set_active_origin(session_id, origin)
+        route_or_transport = asks_route_or_transport(effective_question)
 
-    result = await _handle_pre_agent_paths(
-        session_id=session_id,
-        place=place,
-        question=question,
-        last_reply=last_reply,
-        recent_turns=recent_turns,
-        answer_mode=answer_mode,
-        same_destination_followup=same_destination_followup,
-        effective_question=effective_question,
-        pending_question=pending_question,
-        origin=origin,
-        route_or_transport=route_or_transport,
-        debug=debug,
-    )
-    if result:
-        return result
+        result = await _handle_pre_agent_paths(
+            session_id=session_id,
+            place=place,
+            question=question,
+            last_reply=last_reply,
+            recent_turns=recent_turns,
+            answer_mode=answer_mode,
+            same_destination_followup=same_destination_followup,
+            effective_question=effective_question,
+            pending_question=pending_question,
+            origin=origin,
+            route_or_transport=route_or_transport,
+            debug=debug,
+        )
+        if result:
+            return result
 
-    return await _run_broad_agent(
-        session_id=session_id,
-        place=place,
-        question=question,
-        effective_question=effective_question,
-        origin=origin,
-        answer_mode=answer_mode,
-        route_or_transport=route_or_transport,
-        last_user=last_user,
-        last_reply=last_reply,
-        recent_turns=recent_turns,
-        debug=debug,
-    )
+        return await _run_broad_agent(
+            session_id=session_id,
+            place=place,
+            question=question,
+            effective_question=effective_question,
+            origin=origin,
+            answer_mode=answer_mode,
+            route_or_transport=route_or_transport,
+            last_user=last_user,
+            last_reply=last_reply,
+            recent_turns=recent_turns,
+            debug=debug,
+        )
+    except SessionStoreUnavailable:
+        raise
+    except Exception:
+        log.exception("agent.request.failed", session_id=session_id, place=place)
+        raise

@@ -7,8 +7,9 @@ from app.news.news_service import search_news
 from app.news.tavily_search_fetcher import search_tavily
 
 
+@patch("time.sleep", return_value=None)
 class TavilySearchFetcherTests(unittest.TestCase):
-    def test_search_tavily_normalizes_results(self) -> None:
+    def test_search_tavily_normalizes_results(self, _sleep) -> None:
         payload = {
             "results": [
                 {
@@ -38,14 +39,14 @@ class TavilySearchFetcherTests(unittest.TestCase):
         payload_sent = post_mock.call_args.kwargs["json"]
         self.assertIn("IRONMAN 70.3 Davao schedule", payload_sent["query"])
 
-    def test_search_tavily_returns_error_when_api_key_missing(self) -> None:
+    def test_search_tavily_returns_error_when_api_key_missing(self, _sleep) -> None:
         with patch("app.news.tavily_search_fetcher.settings.tavily_api", ""):
             items, err = search_tavily("Davao race schedule")
 
         self.assertEqual(items, [])
         self.assertEqual(err, "missing_tavily_api")
 
-    def test_search_news_uses_tavily_provider(self) -> None:
+    def test_search_news_uses_tavily_provider(self, _sleep) -> None:
         expected = (
             [
                 {
@@ -65,7 +66,7 @@ class TavilySearchFetcherTests(unittest.TestCase):
         self.assertEqual(items[0]["title"], "Result")
         search_mock.assert_called_once_with("cash aid weekend", "Manila")
 
-    def test_search_tavily_handles_http_error(self) -> None:
+    def test_search_tavily_handles_http_error(self, _sleep) -> None:
         request = httpx.Request("POST", "https://api.tavily.com/search")
         response = httpx.Response(500, request=request)
         error = httpx.HTTPStatusError("boom", request=request, response=response)
