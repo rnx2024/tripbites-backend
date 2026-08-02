@@ -6,9 +6,9 @@ import time
 from typing import Any, cast
 
 import structlog
+from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
 
 from app.agent.agent_policy import (
     AnswerMode,
@@ -86,7 +86,7 @@ def _get_react_app(include_weather: bool, include_news: bool):
         gated.append(news_tool)
         gated.append(news_search_tool)
 
-    app = create_react_agent(model=_llm, tools=gated, prompt=LOCAL_INTELLIGENCE_SYSTEM_PROMPT)
+    app = create_agent(model=_llm, tools=gated, system_prompt=LOCAL_INTELLIGENCE_SYSTEM_PROMPT)
     _REACT_APP_CACHE[key] = app
     return app
 
