@@ -38,6 +38,7 @@ class TavilySearchFetcherTests(unittest.TestCase):
         self.assertIn("Sunday morning", items[0]["snippet"])
         payload_sent = post_mock.call_args.kwargs["json"]
         self.assertIn("IRONMAN 70.3 Davao schedule", payload_sent["query"])
+        self.assertEqual(payload_sent["time_range"], "week")
 
     def test_search_tavily_returns_error_when_api_key_missing(self, _sleep) -> None:
         with patch("app.news.tavily_search_fetcher.settings.tavily_api", ""):

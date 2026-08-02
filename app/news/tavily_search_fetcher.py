@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 _MAX_RESULTS = 5
 _TIMEOUT_SECONDS = 10.0
 _RETRIES = 3
+_TIME_RANGE = "week"
 
 
 def _infer_source_name(url: str) -> str | None:
@@ -52,6 +53,7 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
         "topic": "general",
         "search_depth": "advanced",
         "max_results": _MAX_RESULTS,
+        "time_range": _TIME_RANGE,
         "include_answer": False,
         "include_images": False,
         "include_raw_content": False,
