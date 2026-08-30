@@ -62,7 +62,7 @@ app = FastAPI(
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     del request
     if any(error["type"] == "json_invalid" for error in exc.errors()):
         return JSONResponse(
