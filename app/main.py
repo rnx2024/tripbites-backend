@@ -6,18 +6,20 @@ import uuid
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.logging_config import configure_logging
 
 configure_logging()
 
+from app.http.request_limits import RequestBodyLimitMiddleware  # noqa: E402
 from app.redis_client import close_redis, init_redis  # noqa: E402
 from app.routes import router as api_router  # noqa: E402
 from app.settings import settings  # noqa: E402
@@ -57,6 +59,39 @@ app = FastAPI(
     openapi_url=None if is_production else "/openapi.json",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    del request
+    if any(error["type"] == "json_invalid" for error in exc.errors()):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "BAD_REQUEST",
+                    "message": "Invalid JSON body.",
+                }
+            },
+        )
+
+    details: dict[str, str] = {}
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error["loc"] if part not in {"body", "query"}) or "request"
+        details[location] = error["msg"]
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Please correct the highlighted fields.",
+                "details": details,
+            }
+        },
+    )
+
+
+app.add_middleware(RequestBodyLimitMiddleware)
 
 # ---------------------------
 # SlowAPI (rate limiting)

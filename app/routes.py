@@ -4,7 +4,7 @@ import hmac
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.agent.agent_service import run_agent
 from app.news.news_service import get_news_items
@@ -14,6 +14,7 @@ from app.session.session_store import ensure_session_store_ready
 from app.settings import settings
 from app.tooling.ratelimit import limiter
 from app.travel_brief import build_travel_brief
+from app.validation import MAX_PLACE_LENGTH, MAX_QUESTION_LENGTH, PlaceValue
 from app.weather.weather_service import get_weather_line
 
 router = APIRouter()
@@ -40,8 +41,13 @@ async def _ensure_session_store_available() -> None:
 
 
 class AgentRequest(BaseModel):
-    place: str
-    question: str | None = None
+    place: str = Field(min_length=1, max_length=MAX_PLACE_LENGTH)
+    question: str | None = Field(default=None, max_length=MAX_QUESTION_LENGTH)
+
+    @field_validator("place", "question", mode="before")
+    @classmethod
+    def strip_input(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class TravelBriefSourceResponse(BaseModel):
@@ -156,7 +162,7 @@ async def agent_endpoint(
 @limiter.limit("15/minute")
 async def travel_brief_endpoint(
     request: Request,
-    place: Annotated[str, Query(..., description="City or destination name")],
+    place: Annotated[PlaceValue, Query(..., description="City or destination name")],
 ) -> TravelBriefResponse:
     brief, err = build_travel_brief(place)
     if err and not brief["sources"]:
@@ -173,7 +179,7 @@ async def travel_brief_endpoint(
 @limiter.limit("15/minute")
 async def weather_endpoint(
     request: Request,
-    place: Annotated[str, Query(..., description="City or place name")],
+    place: Annotated[PlaceValue, Query(..., description="City or place name")],
 ) -> WeatherResponse:
     line, err = get_weather_line(place)
     if err:
@@ -195,7 +201,7 @@ async def weather_endpoint(
 @limiter.limit("15/minute")
 async def news_endpoint(
     request: Request,
-    place: Annotated[str, Query(..., description="City or topic for news search")],
+    place: Annotated[PlaceValue, Query(..., description="City or topic for news search")],
 ) -> NewsResponse:
     headlines, err = get_news_items(place)
     if err:
