@@ -13,8 +13,9 @@ import logging
 import sys
 
 import structlog
+from structlog.types import Processor
 
-_SHARED_PROCESSORS = [
+_SHARED_PROCESSORS: list[Processor] = [
     structlog.contextvars.merge_contextvars,
     structlog.stdlib.add_log_level,
     structlog.stdlib.add_logger_name,
