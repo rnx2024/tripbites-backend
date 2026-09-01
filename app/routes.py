@@ -13,6 +13,7 @@ from app.session.session_auth import require_session, sign_session
 from app.session.session_store import ensure_session_store_ready
 from app.settings import settings
 from app.tooling.ratelimit import limiter
+from app.tooling.usage_limits import enforce_chat_quota
 from app.travel_brief import build_travel_brief
 from app.validation import MAX_PLACE_LENGTH, MAX_QUESTION_LENGTH, PlaceValue
 from app.weather.weather_service import get_weather_line
@@ -139,6 +140,7 @@ async def agent_endpoint(
     session_id: Annotated[str, Depends(require_session)],
 ) -> AgentResponse:
     await _ensure_session_store_available()
+    await enforce_chat_quota(session_id)
     question = payload.question or ""
 
     try:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 
@@ -19,6 +20,7 @@ from app.logging_config import configure_logging
 
 configure_logging()
 
+from app.health import check_readiness  # noqa: E402
 from app.http.request_limits import RequestBodyLimitMiddleware  # noqa: E402
 from app.redis_client import close_redis, init_redis  # noqa: E402
 from app.routes import router as api_router  # noqa: E402
@@ -30,7 +32,12 @@ is_production = os.getenv("ENV", "").lower() == "production"
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next) -> Response:
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        supplied_id = request.headers.get("x-request-id", "")
+        request_id = (
+            supplied_id
+            if len(supplied_id) <= 128 and re.fullmatch(r"[A-Za-z0-9._:-]+", supplied_id)
+            else str(uuid.uuid4())
+        )
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
         try:
@@ -93,6 +100,21 @@ def validation_exception_handler(request: Request, exc: RequestValidationError) 
 
 app.add_middleware(RequestBodyLimitMiddleware)
 
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next) -> Response:
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if is_production:
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # ---------------------------
 # SlowAPI (rate limiting)
 # ---------------------------
@@ -102,7 +124,7 @@ app.state.limiter = limiter
 # is safe at runtime.
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
-allowed_origins = [origin.strip() for origin in settings.frontend_cors_origin.split(",")]
+allowed_origins = [origin.strip().rstrip("/") for origin in settings.frontend_cors_origin.split(",") if origin.strip()]
 
 # ---------------------------------------------------------
 # Request-ID correlation (binds a per-request ID into every
@@ -128,6 +150,18 @@ app.add_middleware(
 # Mount API routes AFTER adding CORS
 # ---------------------------------------------------------
 app.include_router(api_router)
+
+
+@app.get("/health/live", tags=["meta"])
+async def liveness() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/health/ready", tags=["meta"])
+async def readiness() -> dict[str, str]:
+    if not await check_readiness():
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
+    return {"status": "ok"}
 
 
 @app.get("/", tags=["meta"])
