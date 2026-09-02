@@ -1,6 +1,7 @@
 # app/agent_service.py
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import Any, cast
@@ -65,6 +66,8 @@ _llm = ChatOpenAI(
     temperature=settings.openrouter_temperature,
     api_key=settings.openrouter_api_key,
     base_url=settings.openrouter_base_url,
+    timeout=settings.agent_timeout_seconds,
+    max_retries=0,
 )
 
 # -----------------------------------------------------
@@ -161,11 +164,14 @@ async def _resolve_answer_mode(
         "allowed_modes": ["travel_brief", "news_followup", "weather_followup", "journey_planning"],
     }
     try:
-        response = await _llm.ainvoke(
-            [
-                {"role": "system", "content": ANSWER_MODE_ROUTER_SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(evidence, ensure_ascii=True, indent=2)},
-            ]
+        response = await asyncio.wait_for(
+            _llm.ainvoke(
+                [
+                    {"role": "system", "content": ANSWER_MODE_ROUTER_SYSTEM_PROMPT},
+                    {"role": "user", "content": json.dumps(evidence, ensure_ascii=True, indent=2)},
+                ]
+            ),
+            timeout=settings.agent_timeout_seconds,
         )
         payload = json.loads(str(getattr(response, "content", "") or "").strip())
     except (TypeError, ValueError):
@@ -717,7 +723,13 @@ async def _invoke_agent_graph(
 ) -> tuple[dict[str, Any], float]:
     start = time.monotonic()
     try:
-        state: dict[str, Any] = await app.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
+        state: dict[str, Any] = await asyncio.wait_for(
+            app.ainvoke(
+                {"messages": [{"role": "user", "content": user_prompt}]},
+                config={"recursion_limit": settings.agent_recursion_limit},
+            ),
+            timeout=settings.agent_timeout_seconds,
+        )
     except Exception:
         log.exception("agent.llm_invoke.failed", session_id=session_id, place=place)
         raise

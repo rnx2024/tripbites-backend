@@ -1,7 +1,7 @@
 # settings.py
 from __future__ import annotations
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "gpt-4o-mini"
     openrouter_temperature: float = 0.0
+    agent_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
+    agent_recursion_limit: int = Field(default=8, ge=2, le=20)
 
     # External API base URLs
     openweather_current_url: str = "https://api.openweathermap.org/data/2.5/weather"

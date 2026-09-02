@@ -149,6 +149,8 @@ async def agent_endpoint(
             place=payload.place,
             question=question,
         )
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="The travel assistant took too long to respond.") from None
     except SessionStoreUnavailable:
         _raise_session_unavailable()
 
