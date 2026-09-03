@@ -8,6 +8,7 @@ from typing import Any
 from app.http.http_utils import get_json_with_retry
 from app.location.resolve_country import resolve_country_code
 from app.news.serpapi_date_parser import parse_serpapi_date
+from app.provider_schemas import as_list, as_mapping, bounded_text
 from app.settings import settings
 
 log = logging.getLogger(__name__)
@@ -30,7 +31,10 @@ def _fetch_google_news(query: str, *, gl_hint: str) -> tuple[list[dict[str, Any]
         log.error("SerpAPI request failed")
         return [], err
 
-    results = data.get("news_results") or data.get("organic_results") or []
+    data = as_mapping(data)
+    if data is None:
+        return [], "invalid_response"
+    results = as_list(data.get("news_results") or data.get("organic_results"))
 
     max_age_days = 7
     cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
@@ -38,6 +42,8 @@ def _fetch_google_news(query: str, *, gl_hint: str) -> tuple[list[dict[str, Any]
     filtered: list[dict[str, Any]] = []
 
     for item in results:
+        if not isinstance(item, dict):
+            continue
         date_raw = item.get("date") or item.get("published")
         parsed_date = parse_serpapi_date(date_raw)
 
@@ -46,13 +52,13 @@ def _fetch_google_news(query: str, *, gl_hint: str) -> tuple[list[dict[str, Any]
 
         filtered.append(
             {
-                "title": item.get("title", "Untitled"),
+                "title": bounded_text(item.get("title"), maximum=500) or "Untitled",
                 "source": item.get("source", {}).get("name")
                 if isinstance(item.get("source"), dict)
                 else item.get("source"),
                 "date": parsed_date.isoformat(),
-                "link": item.get("link"),
-                "snippet": item.get("snippet"),
+                "link": bounded_text(item.get("link"), maximum=2048),
+                "snippet": bounded_text(item.get("snippet"), maximum=2000),
             }
         )
 

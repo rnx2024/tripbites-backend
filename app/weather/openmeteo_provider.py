@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
+from app.provider_schemas import as_list, as_mapping, bounded_text, finite_coordinate
 from app.settings import settings
 from app.tooling.retry_policy import build_http_retry
 
@@ -110,17 +111,28 @@ def geocode_place(place: str, language: str = "en"):
     except ValueError:
         return None, "Invalid JSON from Open-Meteo geocoding."
 
-    results = data.get("results") or []
+    data = as_mapping(data)
+    if data is None:
+        return None, "Invalid geocoding response."
+    results = as_list(data.get("results"))
     if not results:
         return None, "No geocoding results."
 
-    loc = results[0]
+    loc = as_mapping(results[0])
+    if loc is None:
+        return None, "Invalid geocoding result."
+    latitude = finite_coordinate(loc.get("latitude"), minimum=-90, maximum=90)
+    longitude = finite_coordinate(loc.get("longitude"), minimum=-180, maximum=180)
+    name = bounded_text(loc.get("name"), maximum=200)
+    country = bounded_text(loc.get("country"), maximum=100)
+    if latitude is None or longitude is None or name is None or country is None:
+        return None, "Invalid geocoding result."
     return {
-        "name": loc.get("name"),
-        "country": loc.get("country"),
-        "latitude": loc.get("latitude"),
-        "longitude": loc.get("longitude"),
-        "timezone": loc.get("timezone") or "auto",
+        "name": name,
+        "country": country,
+        "latitude": latitude,
+        "longitude": longitude,
+        "timezone": bounded_text(loc.get("timezone"), maximum=100) or "auto",
     }, None
 
 
@@ -171,9 +183,12 @@ def fetch_openmeteo_forecast(lat: float, lon: float, timezone_name: str = "auto"
         return None, str(exc)
 
     try:
-        return response.json(), None
+        data = as_mapping(response.json())
     except ValueError:
         return None, "Invalid JSON from Open-Meteo forecast."
+    if data is None or not isinstance(data.get("current"), dict) or not isinstance(data.get("daily"), dict):
+        return None, "Invalid Open-Meteo forecast response."
+    return data, None
 
 
 def _pick_daily_value(daily: dict[str, Any], key: str, idx: int):
