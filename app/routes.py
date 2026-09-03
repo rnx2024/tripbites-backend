@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 from typing import Annotated, Literal
 
@@ -168,7 +169,7 @@ async def travel_brief_endpoint(
     request: Request,
     place: Annotated[PlaceValue, Query(..., description="City or destination name")],
 ) -> TravelBriefResponse:
-    brief, err = build_travel_brief(place)
+    brief, err = await asyncio.to_thread(build_travel_brief, place)
     if err and not brief["sources"]:
         raise HTTPException(status_code=502, detail=err)
     return TravelBriefResponse(**brief)
@@ -185,7 +186,7 @@ async def weather_endpoint(
     request: Request,
     place: Annotated[PlaceValue, Query(..., description="City or place name")],
 ) -> WeatherResponse:
-    line, err = get_weather_line(place)
+    line, err = await asyncio.to_thread(get_weather_line, place)
     if err:
         raise HTTPException(status_code=502, detail=err)
     return WeatherResponse(
@@ -207,7 +208,7 @@ async def news_endpoint(
     request: Request,
     place: Annotated[PlaceValue, Query(..., description="City or topic for news search")],
 ) -> NewsResponse:
-    headlines, err = get_news_items(place)
+    headlines, err = await asyncio.to_thread(get_news_items, place)
     if err:
         raise HTTPException(status_code=502, detail="News retrieval failed")
 
