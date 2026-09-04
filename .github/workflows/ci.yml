@@ -1,0 +1,56 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      API_KEY: ci-api-key
+      OPENROUTER_API_KEY: ci-openrouter-key
+      OPENWEATHER_API_KEY: ci-openweather-key
+      SERP_API_KEY: ci-serp-key
+      TAVILY_API: ci-tavily-key
+      ORS_API: ci-ors-key
+      SESSION_SECRET: ci-session-secret
+      FRONTEND_CORS_ORIGIN: https://frontend.example.com
+      REDIS_URL: redis://localhost:6379
+      ENV: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.14"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev
+
+      - name: Lint
+        run: uv run ruff check app tests
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  container:
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --tag tripbites-backend:ci .

@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # Database / cache
     redis_url: str
     session_secret: str
+    session_token_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
 
     model_config = SettingsConfigDict(
         env_file=".env",
