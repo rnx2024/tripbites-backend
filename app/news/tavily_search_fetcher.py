@@ -79,9 +79,9 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
         status = exc.response.status_code if exc.response is not None else "unknown"
         log.error("HTTP %s from Tavily after %s attempt(s)", status, _RETRIES)
         return [], str(status)
-    except httpx.RequestError as exc:
+    except httpx.RequestError:
         log.exception("Request error from Tavily after %s attempt(s)", _RETRIES)
-        return [], str(exc)
+        return [], "request_failed"
 
     try:
         data = response.json()

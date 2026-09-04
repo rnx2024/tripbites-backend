@@ -103,8 +103,8 @@ def geocode_place(place: str, language: str = "en"):
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else "http_error"
         return None, f"Open-Meteo geocoding error: {status}"
-    except httpx.RequestError as exc:
-        return None, str(exc)
+    except httpx.RequestError:
+        return None, "request_failed"
 
     try:
         data = response.json() or {}
@@ -179,8 +179,8 @@ def fetch_openmeteo_forecast(lat: float, lon: float, timezone_name: str = "auto"
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else "http_error"
         return None, f"Open-Meteo forecast error: {status}"
-    except httpx.RequestError as exc:
-        return None, str(exc)
+    except httpx.RequestError:
+        return None, "request_failed"
 
     try:
         data = as_mapping(response.json())

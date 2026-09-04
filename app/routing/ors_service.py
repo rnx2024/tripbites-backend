@@ -96,8 +96,8 @@ def _fetch_route(
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else "http_error"
         return None, str(status)
-    except httpx.RequestError as exc:
-        return None, str(exc)
+    except httpx.RequestError:
+        return None, "request_failed"
 
     try:
         data = response.json()
