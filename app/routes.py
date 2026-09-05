@@ -132,7 +132,10 @@ async def create_session(request: Request) -> dict[str, str]:
     "/chat",
     tags=["agent"],
     dependencies=[Depends(require_api_key)],
-    responses={503: {"description": SESSION_UNAVAILABLE_MESSAGE}},
+    responses={
+        503: {"description": SESSION_UNAVAILABLE_MESSAGE},
+        504: {"description": "The travel assistant took too long to respond."},
+    },
 )
 @limiter.limit("15/minute")
 async def agent_endpoint(

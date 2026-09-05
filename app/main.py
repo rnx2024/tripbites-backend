@@ -158,10 +158,10 @@ async def liveness() -> dict[str, str]:
 
 
 @app.get("/health/ready", tags=["meta"])
-async def readiness() -> dict[str, str]:
+async def readiness() -> JSONResponse:
     if not await check_readiness():
         return JSONResponse(status_code=503, content={"status": "unavailable"})
-    return {"status": "ok"}
+    return JSONResponse(status_code=200, content={"status": "ok"})
 
 
 @app.get("/", tags=["meta"])

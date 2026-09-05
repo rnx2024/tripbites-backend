@@ -24,8 +24,11 @@ def test_chat_quota_rejects_after_limit() -> None:
     redis = AsyncMock()
     redis.incr.return_value = 31
 
-    with patch("app.redis_client.redis", redis), pytest.raises(HTTPException) as raised:
+    def invoke_quota() -> None:
         asyncio.run(enforce_chat_quota("session-2"))
+
+    with patch("app.redis_client.redis", redis), pytest.raises(HTTPException) as raised:
+        invoke_quota()
 
     assert raised.value.status_code == 429
     assert raised.value.headers == {"Retry-After": "3600"}

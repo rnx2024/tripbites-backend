@@ -18,10 +18,7 @@ def test_agent_graph_has_a_total_execution_timeout() -> None:
     async def never_finishes(*args, **kwargs):
         await asyncio.sleep(1)
 
-    with (
-        patch("app.agent.agent_service.settings.agent_timeout_seconds", 0.01),
-        pytest.raises(TimeoutError),
-    ):
+    with patch("app.agent.agent_service.settings.agent_timeout_seconds", 0.01), pytest.raises(TimeoutError):
         asyncio.run(
             _invoke_agent_graph(
                 AsyncMock(ainvoke=never_finishes),
