@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
+from app.news.news_relevance import filter_relevant_news
 from app.news.news_service import get_news_items
 from app.travel_concern_assessor import assess_travel_concern
 from app.weather.weather_service import get_weather_line, get_weather_summary
@@ -45,6 +46,7 @@ def build_travel_brief(place: str) -> tuple[TravelBrief, str]:
         weather_line, weather_line_err = get_weather_line(place)
 
     headlines, news_err = get_news_items(place)
+    headlines = filter_relevant_news(headlines, place)
     assessment = assess_travel_concern(
         place,
         weather_summary,

@@ -9,7 +9,7 @@ class SerpApiNewsFetcherTests(unittest.TestCase):
         payload = {
             "news_results": [
                 {
-                    "title": "Airport shuttle delays after runway works",
+                    "title": "Cebu airport shuttle delays after runway works",
                     "snippet": "Mactan terminal transfers are taking longer than usual during overnight repairs.",
                     "source": {"name": "Local News"},
                     "date": "1 hour ago",

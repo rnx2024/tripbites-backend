@@ -11,6 +11,7 @@ from app.agent.agent_prompts import (
     JOURNEY_ACTION_SYSTEM_PROMPT,
     JOURNEY_QA_SYSTEM_PROMPT,
 )
+from app.news.news_relevance import news_item_mentions_place, sanitize_answer_links, supports_high_impact_claim
 from app.news.news_service import get_news_items, search_news
 from app.routing.ors_service import plan_route
 from app.travel_brief import build_travel_brief
@@ -23,24 +24,32 @@ def _extract_text_tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{4,}", (text or "").lower()))
 
 
-def _match_news_item(question: str, last_reply: str | None, items: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not items:
+def _match_news_item(
+    question: str,
+    last_reply: str | None,
+    items: list[dict[str, Any]],
+    place: str | None = None,
+) -> dict[str, Any] | None:
+    eligible_items = [
+        item for item in items if isinstance(item, dict) and (not place or news_item_mentions_place(item, place))
+    ]
+    if not eligible_items:
         return None
 
     reference_text = " ".join(part for part in (question or "", last_reply or "") if part and part.strip()).strip()
     reference_tokens = _extract_text_tokens(reference_text)
     if not reference_tokens:
-        return items[0]
+        return eligible_items[0]
 
-    best_item = items[0]
+    best_item = eligible_items[0]
     best_score = -1
-    for item in items:
+    for item in eligible_items:
         item_tokens = _extract_text_tokens(_news_text(item))
         score = len(reference_tokens & item_tokens)
         if score > best_score:
             best_item = item
             best_score = score
-    return best_item
+    return best_item if best_score > 0 else None
 
 
 def _news_text(item: dict[str, Any] | None) -> str:
@@ -274,16 +283,29 @@ def _extract_best_news_link(evidence: dict[str, Any]) -> str | None:
         if link:
             return link
 
-    link = _extract_link_from_items(evidence.get("targeted_news_items"))
-    if link:
-        return link
-
-    for key in ("destination_evidence", "origin_evidence"):
-        link = _extract_link_from_block(evidence.get(key))
-        if link:
-            return link
-
     return None
+
+
+def _has_matched_news_evidence(evidence: dict[str, Any]) -> bool:
+    return any(isinstance(evidence.get(key), dict) for key in ("matched_targeted_item", "matched_current_item"))
+
+
+def _validate_news_answer(final: str, evidence: dict[str, Any], place: str) -> str:
+    allowed_links = {
+        str(evidence[key].get("link") or "").strip()
+        for key in ("matched_targeted_item", "matched_current_item")
+        if isinstance(evidence.get(key), dict) and evidence[key].get("link")
+    }
+    final = sanitize_answer_links(final, allowed_links)
+    if not final or not _has_matched_news_evidence(evidence):
+        return final
+    candidates = [
+        evidence.get("matched_targeted_item"),
+        evidence.get("matched_current_item"),
+    ]
+    if any(isinstance(item, dict) and supports_high_impact_claim(final, item, place) for item in candidates):
+        return final
+    return f"I couldn't confirm that specific update for {place} from the available news."
 
 
 def _extract_link(item: Any) -> str | None:
@@ -668,6 +690,7 @@ async def answer_journey_question(
 
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
+    final = _validate_news_answer(final, evidence, place)
     final = _append_followup_link_if_needed(final, evidence, raw_final)
     sources = [{"type": "weather"}, {"type": "news"}]
     return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": sources}
@@ -686,7 +709,7 @@ async def answer_news_followup(
         final = f"I could not retrieve current news for {place} right now."
         return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": []}
 
-    matched_item = _match_news_item(question, last_reply, items)
+    matched_item = _match_news_item(question, last_reply, items, place)
     current_evidence = {
         "mode": "news_followup",
         "question": question,
@@ -706,7 +729,7 @@ async def answer_news_followup(
         return {
             **evidence,
             "used_targeted_search": True,
-            "matched_targeted_item": _match_news_item(question, last_reply, items),
+            "matched_targeted_item": _match_news_item(question, last_reply, items, place),
         }
 
     final, evidence, raw_final = await _resolve_with_search(
@@ -725,8 +748,10 @@ async def answer_news_followup(
 
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
+    final = _validate_news_answer(final, evidence, place)
     final = _append_followup_link_if_needed(final, evidence, raw_final)
-    return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": [{"type": "news"}]}
+    sources = [{"type": "news"}] if _has_matched_news_evidence(evidence) else []
+    return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": sources}
 
 
 async def answer_general_followup(
@@ -738,7 +763,7 @@ async def answer_general_followup(
     conversation_history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     place_evidence = _gather_place_evidence(place)
-    matched_item = _match_news_item(question, last_reply, list(place_evidence.get("news_items") or []))
+    matched_item = _match_news_item(question, last_reply, list(place_evidence.get("news_items") or []), place)
     current_evidence = {
         "mode": "general_followup",
         "question": question,
@@ -758,7 +783,7 @@ async def answer_general_followup(
         return {
             **evidence,
             "used_targeted_search": True,
-            "matched_targeted_item": _match_news_item(question, last_reply, items),
+            "matched_targeted_item": _match_news_item(question, last_reply, items, place),
         }
 
     final, evidence, raw_final = await _resolve_with_search(
@@ -777,6 +802,7 @@ async def answer_general_followup(
 
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
+    final = _validate_news_answer(final, evidence, place)
     final = _append_followup_link_if_needed(final, evidence, raw_final)
     return {
         "place": place,

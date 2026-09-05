@@ -23,8 +23,8 @@ class TravelBriefTests(unittest.TestCase):
         }
         headlines = [
             {
-                "title": "Airport shuttle delays after runway works",
-                "snippet": "Mactan terminal transfers are taking longer than usual during overnight repairs.",
+                "title": "Cebu airport shuttle delays after runway works",
+                "snippet": "Cebu Mactan terminal transfers are taking longer than usual during overnight repairs.",
                 "source": "Local News",
                 "date": "2026-03-16T05:00:00+00:00",
                 "link": "https://example.com/airport-delays",

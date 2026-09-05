@@ -51,7 +51,7 @@ class TavilySearchFetcherTests(unittest.TestCase):
         expected = (
             [
                 {
-                    "title": "Result",
+                    "title": "Manila cash aid weekend result",
                     "source": "example.com",
                     "date": None,
                     "link": "https://example.com",
@@ -64,7 +64,7 @@ class TavilySearchFetcherTests(unittest.TestCase):
             items, err = search_news("cash aid weekend", "Manila")
 
         self.assertEqual(err, "")
-        self.assertEqual(items[0]["title"], "Result")
+        self.assertEqual(items[0]["title"], "Manila cash aid weekend result")
         search_mock.assert_called_once_with("cash aid weekend", "Manila")
 
     def test_search_tavily_handles_http_error(self, _sleep) -> None:
