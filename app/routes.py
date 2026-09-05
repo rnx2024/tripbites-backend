@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 from typing import Annotated, Literal
 
@@ -13,6 +14,7 @@ from app.session.session_auth import require_session, sign_session
 from app.session.session_store import ensure_session_store_ready
 from app.settings import settings
 from app.tooling.ratelimit import limiter
+from app.tooling.usage_limits import enforce_chat_quota
 from app.travel_brief import build_travel_brief
 from app.validation import MAX_PLACE_LENGTH, MAX_QUESTION_LENGTH, PlaceValue
 from app.weather.weather_service import get_weather_line
@@ -130,7 +132,10 @@ async def create_session(request: Request) -> dict[str, str]:
     "/chat",
     tags=["agent"],
     dependencies=[Depends(require_api_key)],
-    responses={503: {"description": SESSION_UNAVAILABLE_MESSAGE}},
+    responses={
+        503: {"description": SESSION_UNAVAILABLE_MESSAGE},
+        504: {"description": "The travel assistant took too long to respond."},
+    },
 )
 @limiter.limit("15/minute")
 async def agent_endpoint(
@@ -139,6 +144,7 @@ async def agent_endpoint(
     session_id: Annotated[str, Depends(require_session)],
 ) -> AgentResponse:
     await _ensure_session_store_available()
+    await enforce_chat_quota(session_id)
     question = payload.question or ""
 
     try:
@@ -147,6 +153,8 @@ async def agent_endpoint(
             place=payload.place,
             question=question,
         )
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="The travel assistant took too long to respond.") from None
     except SessionStoreUnavailable:
         _raise_session_unavailable()
 
@@ -164,7 +172,7 @@ async def travel_brief_endpoint(
     request: Request,
     place: Annotated[PlaceValue, Query(..., description="City or destination name")],
 ) -> TravelBriefResponse:
-    brief, err = build_travel_brief(place)
+    brief, err = await asyncio.to_thread(build_travel_brief, place)
     if err and not brief["sources"]:
         raise HTTPException(status_code=502, detail=err)
     return TravelBriefResponse(**brief)
@@ -181,7 +189,7 @@ async def weather_endpoint(
     request: Request,
     place: Annotated[PlaceValue, Query(..., description="City or place name")],
 ) -> WeatherResponse:
-    line, err = get_weather_line(place)
+    line, err = await asyncio.to_thread(get_weather_line, place)
     if err:
         raise HTTPException(status_code=502, detail=err)
     return WeatherResponse(
@@ -203,7 +211,7 @@ async def news_endpoint(
     request: Request,
     place: Annotated[PlaceValue, Query(..., description="City or topic for news search")],
 ) -> NewsResponse:
-    headlines, err = get_news_items(place)
+    headlines, err = await asyncio.to_thread(get_news_items, place)
     if err:
         raise HTTPException(status_code=502, detail="News retrieval failed")
 

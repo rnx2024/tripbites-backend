@@ -1,0 +1,66 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      API_KEY: ci-api-key
+      OPENROUTER_API_KEY: ci-openrouter-key
+      OPENWEATHER_API_KEY: ci-openweather-key
+      SERP_API_KEY: ci-serp-key
+      TAVILY_API: ci-tavily-key
+      ORS_API: ci-ors-key
+      SESSION_SECRET: ci-session-secret
+      FRONTEND_CORS_ORIGIN: https://frontend.example.com
+      REDIS_URL: redis://localhost:6379
+      ENV: production
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.8.14"
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev --no-build --no-install-project
+
+      - name: Lint
+        run: uv run --no-sync --no-build ruff check app tests
+
+      - name: Run tests
+        run: uv run --no-sync --no-build pytest -q
+
+  container:
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build production image
+        run: docker build --tag tripbites-backend:ci .

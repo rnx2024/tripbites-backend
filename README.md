@@ -113,6 +113,7 @@ Set these in a local `.env` file (see `.env.example` for the full template; neve
 | `ORS_API` | OpenRouteService API key; enables journey/route planning |
 | `API_KEY` | Shared secret required via `x-api-key` on protected endpoints |
 | `SESSION_SECRET` | Signing key for the session token (`itsdangerous`) |
+| `SESSION_TOKEN_TTL_SECONDS` | Lifetime of signed session tokens in seconds (default: 86400) |
 | `FRONTEND_CORS_ORIGIN` | Comma-separated list of allowed CORS origins |
 | `REDIS_URL` | Redis connection string for session + cache storage |
 | `ENV` | Set to `production` on the production deployment to disable `/docs`, `/redoc`, and `/openapi.json`. Leave unset for local development. |

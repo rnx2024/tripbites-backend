@@ -1,7 +1,7 @@
 # settings.py
 from __future__ import annotations
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "gpt-4o-mini"
     openrouter_temperature: float = 0.0
+    agent_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
+    agent_recursion_limit: int = Field(default=8, ge=2, le=20)
 
     # External API base URLs
     openweather_current_url: str = "https://api.openweathermap.org/data/2.5/weather"
@@ -31,6 +33,7 @@ class Settings(BaseSettings):
     # Database / cache
     redis_url: str
     session_secret: str
+    session_token_ttl_seconds: int = Field(default=86400, ge=300, le=604800)
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -47,6 +50,20 @@ class Settings(BaseSettings):
                 raise ValueError("Empty environment values are not allowed")
             return cleaned
         return value
+
+    @field_validator("frontend_cors_origin")
+    @classmethod
+    def _validate_cors_origins(cls, value: str) -> str:
+        from urllib.parse import urlparse
+
+        origins = [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
+        if not origins:
+            raise ValueError("FRONTEND_CORS_ORIGIN must contain at least one origin")
+        for origin in origins:
+            parsed = urlparse(origin)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.path:
+                raise ValueError("FRONTEND_CORS_ORIGIN must contain valid origins")
+        return ",".join(origins)
 
 
 settings = Settings()

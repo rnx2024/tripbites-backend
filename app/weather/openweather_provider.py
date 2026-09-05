@@ -12,10 +12,13 @@ def get_weather_raw(place: str) -> tuple[dict[str, Any], str]:
     Call OpenWeather current weather endpoint.
     URL is loaded from settings.openweather_current_url.
     """
-    return get_json_with_retry(
+    data, error = get_json_with_retry(
         settings.openweather_current_url,
         {"q": place, "appid": settings.openweather_api_key, "units": "metric"},
     )
+    if error or not isinstance(data, dict):
+        return {}, error or "invalid_response"
+    return data, ""
 
 
 def get_weather_line(place: str) -> tuple[str, str]:

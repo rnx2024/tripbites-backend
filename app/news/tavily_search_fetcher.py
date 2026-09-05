@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.provider_schemas import as_list, as_mapping, bounded_text
 from app.settings import settings
 from app.tooling.retry_policy import build_http_retry
 
@@ -27,10 +28,12 @@ def _infer_source_name(url: str) -> str | None:
 def _normalize_tavily_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for item in results[:_MAX_RESULTS]:
-        url = str(item.get("url") or "").strip()
-        title = str(item.get("title") or "").strip()
-        snippet = str(item.get("content") or "").strip()
-        published = str(item.get("published_date") or item.get("date") or "").strip() or None
+        if not isinstance(item, dict):
+            continue
+        url = bounded_text(item.get("url"), maximum=2048) or ""
+        title = bounded_text(item.get("title"), maximum=500) or ""
+        snippet = bounded_text(item.get("content"), maximum=2000) or ""
+        published = bounded_text(item.get("published_date") or item.get("date"), maximum=100)
         normalized.append(
             {
                 "title": title or "Untitled",
@@ -76,9 +79,9 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
         status = exc.response.status_code if exc.response is not None else "unknown"
         log.error("HTTP %s from Tavily after %s attempt(s)", status, _RETRIES)
         return [], str(status)
-    except httpx.RequestError as exc:
+    except httpx.RequestError:
         log.exception("Request error from Tavily after %s attempt(s)", _RETRIES)
-        return [], str(exc)
+        return [], "request_failed"
 
     try:
         data = response.json()
@@ -86,4 +89,7 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
         log.error("Invalid JSON from Tavily")
         return [], "invalid_json"
 
-    return _normalize_tavily_results(data.get("results") or []), ""
+    data = as_mapping(data)
+    if data is None:
+        return [], "invalid_response"
+    return _normalize_tavily_results(as_list(data.get("results"))), ""

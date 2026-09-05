@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from app.provider_schemas import as_list, as_mapping
 from app.settings import settings
 from app.tooling.retry_policy import build_http_retry
 from app.weather.openmeteo_provider import geocode_place
@@ -38,6 +39,36 @@ def _midpoint(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float
     return (lat1 + lat2) / 2.0, (lon1 + lon2) / 2.0
 
 
+def _parse_route_payload(data: Any, profile: str) -> tuple[dict[str, Any] | None, str]:
+    payload = as_mapping(data)
+    if payload is None:
+        return None, "invalid_json"
+    features = as_list(payload.get("features"))
+    if not features:
+        return None, "no_route"
+    feature = as_mapping(features[0])
+    if feature is None:
+        return None, "invalid_route"
+    properties = as_mapping(feature.get("properties")) or {}
+    summary = as_mapping(properties.get("summary"))
+    if summary is None:
+        return None, "invalid_summary"
+    distance_m = summary.get("distance")
+    duration_s = summary.get("duration")
+    if not isinstance(distance_m, (int, float)) or not isinstance(duration_s, (int, float)):
+        return None, "invalid_summary"
+    if distance_m < 0 or duration_s < 0:
+        return None, "invalid_summary"
+    return {
+        "profile": profile,
+        "mode": PROFILE_LABELS.get(profile, profile),
+        "distance_km": round(distance_m / 1000.0, 2),
+        "duration_min": round(duration_s / 60.0, 1),
+        "raw_distance_m": distance_m,
+        "raw_duration_s": duration_s,
+    }, ""
+
+
 def _fetch_route(
     profile: str, start: tuple[float, float], end: tuple[float, float]
 ) -> tuple[dict[str, Any] | None, str]:
@@ -65,31 +96,15 @@ def _fetch_route(
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else "http_error"
         return None, str(status)
-    except httpx.RequestError as exc:
-        return None, str(exc)
+    except httpx.RequestError:
+        return None, "request_failed"
 
     try:
         data = response.json()
     except ValueError:
         return None, "invalid_json"
 
-    features = data.get("features") or []
-    if not features:
-        return None, "no_route"
-    summary = (features[0].get("properties") or {}).get("summary") or {}
-    distance_m = summary.get("distance")
-    duration_s = summary.get("duration")
-    if not isinstance(distance_m, (int, float)) or not isinstance(duration_s, (int, float)):
-        return None, "invalid_summary"
-
-    return {
-        "profile": profile,
-        "mode": PROFILE_LABELS.get(profile, profile),
-        "distance_km": round(distance_m / 1000.0, 2),
-        "duration_min": round(duration_s / 60.0, 1),
-        "raw_distance_m": distance_m,
-        "raw_duration_s": duration_s,
-    }, ""
+    return _parse_route_payload(data, profile)
 
 
 def _resolve_location(place: str, role: str) -> tuple[dict[str, Any] | None, str]:
@@ -150,6 +165,10 @@ def plan_route(
     midpoint_lat, midpoint_lon = _midpoint(start[0], start[1], end[0], end[1])
 
     chosen_profiles = profiles or DEFAULT_PROFILES
+    if not chosen_profiles or len(chosen_profiles) > len(DEFAULT_PROFILES) or any(
+        profile not in PROFILE_LABELS for profile in chosen_profiles
+    ):
+        return None, "invalid_route_profiles"
     routes, errors = _collect_routes(chosen_profiles, start, end)
 
     if not routes:

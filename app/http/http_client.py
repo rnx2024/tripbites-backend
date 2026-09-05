@@ -32,9 +32,9 @@ def get_json_with_retry(
         status = exc.response.status_code if exc.response is not None else "unknown"
         log.error("HTTP %s from %s after %s attempt(s)", status, url, retries)
         return {}, str(status)
-    except httpx.RequestError as exc:
+    except httpx.RequestError:
         log.exception("Request error from %s after %s attempt(s)", url, retries)
-        return {}, str(exc)
+        return {}, "request_failed"
 
     try:
         return response.json(), ""
