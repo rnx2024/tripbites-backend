@@ -37,6 +37,7 @@ from app.agent.followup_qa import (
 from app.agent.followup_qa import (
     answer_weather_followup as _answer_weather_followup,
 )
+from app.news.news_relevance import contains_high_impact_claim, sanitize_answer_links, supports_high_impact_claim
 from app.session.errors import SessionStoreUnavailable
 
 # session memory (Redis-backed)
@@ -301,6 +302,21 @@ def _extract_structured_brief(messages: list[BaseMessage], place: str) -> dict[s
         "travel_advice": [],
         "sources": sources,
     }
+
+
+def _ground_final_answer(final: str, place: str, brief: dict[str, Any]) -> str:
+    news_items = brief.get("news_items") or []
+    allowed_links = {
+        str(item.get("link") or "").strip() for item in news_items if isinstance(item, dict) and item.get("link")
+    }
+    final = sanitize_answer_links(final, allowed_links)
+    if (
+        final
+        and contains_high_impact_claim(final)
+        and not any(isinstance(item, dict) and supports_high_impact_claim(final, item, place) for item in news_items)
+    ):
+        return f"I couldn't confirm that specific update for {place} from the available news."
+    return final
 
 
 def _build_policy_lines(
@@ -804,9 +820,10 @@ async def _run_broad_agent(
     await set_active_destination(session_id, place)
 
     brief = _extract_structured_brief(messages, place)
+    grounded_final = _ground_final_answer(final_text or str(brief.get("final") or ""), place, brief)
     result: dict[str, Any] = {
         "place": str(brief.get("place") or place),
-        "final": final_text or str(brief.get("final") or ""),
+        "final": grounded_final,
         "risk_level": (str(brief.get("risk_level") or "low") if answer_mode == "travel_brief" else None),
         "travel_advice": cast(list[str], brief.get("travel_advice") or []) if answer_mode == "travel_brief" else [],
         "sources": cast(list[dict[str, str]], brief.get("sources") or []),

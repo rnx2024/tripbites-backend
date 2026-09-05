@@ -658,7 +658,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         search_mock.assert_not_called()
         reasoner_mock.assert_not_awaited()
 
-    async def test_journey_answer_appends_source_link_when_reasoner_mentions_article(self) -> None:
+    async def test_journey_answer_does_not_append_unmatched_source_link(self) -> None:
         brief = self._brief(
             "La Union",
             weather_text="Broken clouds",
@@ -688,7 +688,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
                 question="What's the best transport from Ilocos Sur to get there?",
             )
 
-        self.assertIn("source: https://example.com/roadworks", result["final"].lower())
+        self.assertNotIn("https://example.com/roadworks", result["final"].lower())
 
     async def test_journey_transport_search_uses_user_question_terms(self) -> None:
         brief = self._brief("Davao", weather_text="Broken clouds")
@@ -859,7 +859,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("low risk level", result["final"].lower())
         self.assertEqual(result["final"].count("."), 1)
 
-    async def test_news_followup_appends_source_link_when_answer_references_article(self) -> None:
+    async def test_news_followup_does_not_append_unmatched_source_link(self) -> None:
         initial_items = [
             {
                 "title": "Hit-and-run chase reported in La Union",
@@ -891,7 +891,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
                             question="I plan to go here by Saturday? Any possible disruptions?",
                         )
 
-        self.assertIn("source: https://example.com/hit-and-run", result["final"].lower())
+        self.assertNotIn("https://example.com/hit-and-run", result["final"].lower())
 
     async def test_weather_followup_softens_robotic_language(self) -> None:
         with patch("app.agent.agent_service.get_last_exchange", new=AsyncMock(return_value=(None, None))):

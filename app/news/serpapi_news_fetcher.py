@@ -7,6 +7,7 @@ from typing import Any
 
 from app.http.http_utils import get_json_with_retry
 from app.location.resolve_country import resolve_country_code
+from app.news.news_relevance import filter_relevant_news
 from app.news.serpapi_date_parser import parse_serpapi_date
 from app.provider_schemas import as_list, as_mapping, bounded_text
 from app.settings import settings
@@ -26,12 +27,12 @@ def _fetch_google_news(query: str, *, gl_hint: str) -> tuple[list[dict[str, Any]
         "api_key": settings.serp_api_key,
     }
 
-    data, err = get_json_with_retry(settings.serpapi_search_url, params)
+    raw_data, err = get_json_with_retry(settings.serpapi_search_url, params)
     if err:
         log.error("SerpAPI request failed")
         return [], err
 
-    data = as_mapping(data)
+    data = as_mapping(raw_data)
     if data is None:
         return [], "invalid_response"
     results = as_list(data.get("news_results") or data.get("organic_results"))
@@ -44,7 +45,7 @@ def _fetch_google_news(query: str, *, gl_hint: str) -> tuple[list[dict[str, Any]
     for item in results:
         if not isinstance(item, dict):
             continue
-        date_raw = item.get("date") or item.get("published")
+        date_raw = str(item.get("date") or item.get("published") or "")
         parsed_date = parse_serpapi_date(date_raw)
 
         if not parsed_date or parsed_date < cutoff:
@@ -70,7 +71,8 @@ def fetch_news_items(place: str) -> tuple[list[dict[str, Any]], str]:
     """
     Fetch recent Google News results for a selected place.
     """
-    return _fetch_google_news(place, gl_hint=place)
+    items, error = _fetch_google_news(place, gl_hint=place)
+    return filter_relevant_news(items, place), error
 
 
 def search_news_items(query: str, place_hint: str | None = None) -> tuple[list[dict[str, Any]], str]:
@@ -79,4 +81,5 @@ def search_news_items(query: str, place_hint: str | None = None) -> tuple[list[d
     date filtering and response shape as the default place-based search.
     """
     hint = place_hint or query
-    return _fetch_google_news(query, gl_hint=hint)
+    items, error = _fetch_google_news(query, gl_hint=hint)
+    return filter_relevant_news(items, hint), error

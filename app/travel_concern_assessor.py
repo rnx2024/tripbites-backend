@@ -6,6 +6,7 @@ from typing import Any, Literal, TypedDict
 from langchain_openai import ChatOpenAI
 from openai import OpenAIError
 
+from app.news.news_relevance import filter_relevant_news
 from app.settings import settings
 from app.travel_intelligence import classify_risk_level, score_weather_risk
 
@@ -45,6 +46,8 @@ Rules:
 - Ignore news that is not meaningfully relevant to travelers.
 - Do not treat generic civic, pricing, aid, research, policy, ordinance, or program stories as travel concerns unless the provided title or snippet clearly connects them to movement, access, schedules, safety, or crowding.
 - If a news item's travel impact is unclear, exclude it.
+- Use only news items that explicitly mention the selected destination in the title or snippet. A story about another city, province, or municipality is not evidence for this destination.
+- For class/work suspensions, closures, evacuations, executive orders, or cancellations, select an item only when its title or snippet directly states the event for the selected destination.
 - Keep "final" concise, natural, and conversational, but still factual and travel-focused.
 - If the trip generally looks fine, say that plainly.
 - If the evidence is thin or incomplete, say that plainly instead of filling gaps.
@@ -147,6 +150,7 @@ def assess_travel_concern(
     *,
     news_scan_available: bool,
 ) -> ConcernAssessment:
+    validated_headlines = filter_relevant_news(headlines, place)
     news_payload = [
         {
             "index": idx,
@@ -156,7 +160,7 @@ def assess_travel_concern(
             "date": str(item.get("date") or "").strip(),
             "link": str(item.get("link") or "").strip(),
         }
-        for idx, item in enumerate(headlines[:_MAX_NEWS_ITEMS])
+        for idx, item in enumerate(validated_headlines[:_MAX_NEWS_ITEMS])
     ]
 
     evidence = {
@@ -179,7 +183,7 @@ def assess_travel_concern(
         return _build_fallback_assessment(place, weather_summary, weather_line, news_scan_available)
 
     selected_indexes = _normalize_news_indexes(parsed.get("relevant_news_indexes"), len(news_payload))
-    relevant_news_items = [headlines[idx] for idx in selected_indexes]
+    relevant_news_items = [validated_headlines[idx] for idx in selected_indexes]
     risk_level = _normalize_risk_level(parsed.get("risk_level"))
     final = str(parsed.get("final") or "").strip()
 

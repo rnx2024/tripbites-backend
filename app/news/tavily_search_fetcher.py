@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.news.news_relevance import filter_relevant_news
 from app.provider_schemas import as_list, as_mapping, bounded_text
 from app.settings import settings
 from app.tooling.retry_policy import build_http_retry
@@ -92,4 +93,7 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
     data = as_mapping(data)
     if data is None:
         return [], "invalid_response"
-    return _normalize_tavily_results(as_list(data.get("results"))), ""
+    normalized = _normalize_tavily_results(as_list(data.get("results")))
+    if place_hint:
+        normalized = filter_relevant_news(normalized, place_hint)
+    return normalized, ""
