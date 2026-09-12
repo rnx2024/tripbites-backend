@@ -126,6 +126,16 @@ uv run ruff format .     # format
 uv run pytest            # run the test suite
 ```
 
+### Performance and operations
+
+Run a bounded local performance check against a locally running backend:
+
+```bash
+uv run python scripts/load_test.py --url http://127.0.0.1:8000 --endpoint health/live --requests 50 --concurrency 5 --output .tmp/performance/health-live.json
+```
+
+Reports are local-only and ignored by Git. Do not load-test the free Render service or repeatedly call provider-backed endpoints in production. See [`docs/performance-test-plan.md`](docs/performance-test-plan.md), [`docs/architecture-and-operations.md`](docs/architecture-and-operations.md), [`docs/runbooks.md`](docs/runbooks.md), and [`docs/technical-debt.md`](docs/technical-debt.md).
+
 ## Deployment
 
 Deployed as a Docker container on [Render](https://render.com) (see `Dockerfile`; the container binds to `$PORT` if set, falling back to `8080` for local runs).
