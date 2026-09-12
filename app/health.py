@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import app.redis_client as redis_client
 
 
@@ -10,6 +12,9 @@ async def check_readiness() -> bool:
     if redis_client.redis is None:
         return False
     try:
-        return bool(await redis_client.redis.ping())
+        result = redis_client.redis.ping()
+        if inspect.isawaitable(result):
+            result = await result
+        return bool(result)
     except Exception:
         return False

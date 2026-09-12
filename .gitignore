@@ -54,3 +54,6 @@ logs/
 # Misc
 *.egg
 *.egg-info
+
+# Local performance reports
+.tmp/performance/

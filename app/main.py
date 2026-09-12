@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -27,11 +28,14 @@ from app.routes import router as api_router  # noqa: E402
 from app.settings import settings  # noqa: E402
 from app.tooling.ratelimit import limiter  # noqa: E402
 
+log = structlog.get_logger(__name__)
+
 is_production = os.getenv("ENV", "").lower() == "production"
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next) -> Response:
+        started = time.perf_counter()
         supplied_id = request.headers.get("x-request-id", "")
         request_id = (
             supplied_id
@@ -42,10 +46,26 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         structlog.contextvars.bind_contextvars(request_id=request_id)
         try:
             response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            log.info(
+                "request.completed",
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
+            return response
+        except Exception:
+            log.exception(
+                "request.failed",
+                method=request.method,
+                path=request.url.path,
+                status_code=500,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            )
+            raise
         finally:
             structlog.contextvars.clear_contextvars()
-        response.headers["X-Request-ID"] = request_id
-        return response
 
 
 @asynccontextmanager
