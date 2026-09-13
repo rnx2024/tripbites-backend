@@ -27,6 +27,7 @@ SourceType = Literal["weather", "news"]
 def require_api_key(
     x_api_key: Annotated[str, Header(..., alias="x-api-key")],
 ) -> None:
+    # Constant-time comparison reduces timing side-channel leakage for API keys.
     if not hmac.compare_digest(x_api_key, settings.api_key):
         raise HTTPException(status_code=401, detail="Invalid API key")
 

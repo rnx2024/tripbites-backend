@@ -5,7 +5,7 @@ TripBites is a travel intelligence API for destination briefs, local condition a
 The backend combines:
 - weather signals for near-term travel planning
 - recent local news for disruptions, closures, safety issues, and major developments
-- a LangGraph-powered assistant that turns those inputs into concise travel-facing summaries
+- a LangGraph-powered assistant that routes tools and turns those inputs into concise travel-facing summaries
 
 ## What The API Does
 
@@ -74,12 +74,24 @@ The backend keeps the original route structure for compatibility, but the busine
 
 Core pieces:
 - FastAPI for the API surface
-- LangGraph for the `/chat` assistant
+- LangChain/LangGraph for tool-gated `/chat` execution and follow-up handling
 - Open-Meteo and OpenWeather for weather data
 - OpenRouteService for routing (set `ORS_API` to enable journey planning routes)
 - SerpAPI Google News for recent local reporting
 - Redis-backed session and cache helpers
 - rate limiting and retry helpers around outbound provider calls
+
+Request flow:
+
+```text
+Frontend → API key/session validation → session context in Redis
+        → deterministic routing and follow-up handling
+        → LangGraph tools (weather/news/routing/brief)
+        → grounded structured response → persisted conversation state
+```
+
+Redis stores session conversation state and provider/tool cache entries. Tool
+cache entries use a one-hour default TTL; session tokens default to 24 hours.
 
 ## Security And Access
 
