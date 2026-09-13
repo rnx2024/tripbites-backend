@@ -41,7 +41,7 @@ from app.agent.followup_qa import (
 )
 from app.news.news_relevance import (
     contains_high_impact_claim,
-    contains_http_url,
+    contains_https_url,
     meaningful_tokens,
     sanitize_answer_links,
     supports_high_impact_claim,
@@ -343,7 +343,7 @@ def _find_best_news_link(final: str, brief: dict[str, Any]) -> str | None:
         if not isinstance(item, dict):
             continue
         link = str(item.get("link") or "").strip()
-        if not link.startswith(("http://", "https://")):
+        if not link.startswith("https://"):
             continue
         score = len(answer_tokens & _news_item_tokens(item))
         if score > best_score:
@@ -356,7 +356,7 @@ def _add_news_source_label(final: str, link: str) -> str:
     raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
     if raw_source.search(final):
         return raw_source.sub(f"[Source]({link})", final, count=1)
-    if contains_http_url(final):
+    if contains_https_url(final):
         return final
     separator = "" if final.endswith((".", "!", "?")) else "."
     return f"{final}{separator} [Source]({link})"

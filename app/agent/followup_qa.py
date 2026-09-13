@@ -12,7 +12,7 @@ from app.agent.agent_prompts import (
     JOURNEY_QA_SYSTEM_PROMPT,
 )
 from app.news.news_relevance import (
-    contains_http_url,
+    contains_https_url,
     meaningful_tokens,
     news_item_mentions_place,
     sanitize_answer_links,
@@ -330,7 +330,7 @@ def _extract_link_from_block(block: Any) -> str | None:
 
 
 def _contains_url(text: str) -> bool:
-    return contains_http_url(text)
+    return contains_https_url(text)
 
 
 def _append_followup_link_if_needed(final: str, evidence: dict[str, Any]) -> str:

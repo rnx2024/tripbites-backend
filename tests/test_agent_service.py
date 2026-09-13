@@ -31,7 +31,25 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        self.assertEqual(final, "Road closures may affect travel in Vigan. [Source](https://example.com/vigan-closures)")
+        self.assertEqual(
+            final, "Road closures may affect travel in Vigan. [Source](https://example.com/vigan-closures)"
+        )
+
+    def test_broad_news_answer_does_not_attach_http_source_link(self) -> None:
+        final = _append_news_source_link(
+            "Road closures may affect travel in Vigan.",
+            {
+                "news_items": [
+                    {
+                        "title": "Road closures reported in Vigan",
+                        "snippet": "Road closures may affect travel.",
+                        "link": "http://example.com/vigan-closures",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual(final, "Road closures may affect travel in Vigan.")
 
     @staticmethod
     def _brief(

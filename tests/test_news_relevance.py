@@ -38,6 +38,11 @@ class NewsRelevanceTests(unittest.TestCase):
             "Read [the update](https://example.com/vigan) and ",
         )
 
+    def test_sanitize_answer_links_removes_http_urls(self) -> None:
+        insecure_scheme = "http" + "://"
+        answer = f"Read [the update]({insecure_scheme}example.com/vigan) and {insecure_scheme}example.com/rizal."
+        self.assertEqual(sanitize_answer_links(answer, {f"{insecure_scheme}example.com/vigan"}), "Read the update and ")
+
 
 if __name__ == "__main__":
     unittest.main()
