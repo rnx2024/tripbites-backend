@@ -19,7 +19,16 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
     def test_broad_news_answer_includes_a_labeled_source_link(self) -> None:
         final = _append_news_source_link(
             "Road closures may affect travel in Vigan.",
-            {"news_items": [{"link": "https://example.com/vigan-closures"}]},
+            {
+                "news_items": [
+                    {"title": "Cooking video", "snippet": "A recipe video.", "link": "https://example.com/video"},
+                    {
+                        "title": "Road closures reported in Vigan",
+                        "snippet": "Road closures may affect travel.",
+                        "link": "https://example.com/vigan-closures",
+                    },
+                ]
+            },
         )
 
         self.assertEqual(final, "Road closures may affect travel in Vigan. [Source](https://example.com/vigan-closures)")

@@ -324,9 +324,12 @@ def _ground_final_answer(final: str, place: str, brief: dict[str, Any]) -> str:
 
 
 def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
-    if not final:
+    if not final or final.lower().startswith("i couldn't confirm that specific update"):
         return final
 
+    answer_tokens = set(re.findall(r"[a-z0-9]{4,}", final.casefold()))
+    best_link: str | None = None
+    best_score = 0
     for item in brief.get("news_items") or []:
         if not isinstance(item, dict):
             continue
@@ -334,16 +337,29 @@ def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
         if not link.startswith(("http://", "https://")):
             continue
 
-        raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
-        if raw_source.search(final):
-            return raw_source.sub(f"[Source]({link})", final, count=1)
-        if re.search(r"https?://\S+", final):
-            return final
+        item_tokens = set(
+            re.findall(
+                r"[a-z0-9]{4,}",
+                " ".join(str(item.get(field) or "") for field in ("title", "snippet")).casefold(),
+            )
+        )
+        score = len(answer_tokens & item_tokens)
+        if score > best_score:
+            best_link = link
+            best_score = score
 
-        separator = "" if final.endswith((".", "!", "?")) else "."
-        return f"{final}{separator} [Source]({link})"
+    if not best_link:
+        return final
 
-    return final
+    raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(best_link)}")
+    if raw_source.search(final):
+        return raw_source.sub(f"[Source]({best_link})", final, count=1)
+    if re.search(r"https?://\S+", final):
+        return final
+
+    separator = "" if final.endswith((".", "!", "?")) else "."
+    return f"{final}{separator} [Source]({best_link})"
+
 
 
 def _build_policy_lines(

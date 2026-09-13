@@ -336,7 +336,7 @@ def _contains_url(text: str) -> bool:
 
 
 def _append_followup_link_if_needed(final: str, evidence: dict[str, Any]) -> str:
-    if not final:
+    if not final or final.lower().startswith("i couldn't confirm that specific update"):
         return final
 
     link = _extract_best_news_link(evidence)
