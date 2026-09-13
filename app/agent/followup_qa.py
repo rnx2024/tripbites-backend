@@ -11,17 +11,52 @@ from app.agent.agent_prompts import (
     JOURNEY_ACTION_SYSTEM_PROMPT,
     JOURNEY_QA_SYSTEM_PROMPT,
 )
-from app.news.news_relevance import news_item_mentions_place, sanitize_answer_links, supports_high_impact_claim
+from app.news.news_relevance import (
+    contains_http_url,
+    meaningful_tokens,
+    news_item_mentions_place,
+    sanitize_answer_links,
+    supports_high_impact_claim,
+)
 from app.news.news_service import get_news_items, search_news
 from app.routing.ors_service import plan_route
 from app.travel_brief import build_travel_brief
 from app.weather.weather_service import get_weather_line, get_weather_summary, get_weather_summary_by_coords
 
 _LONG_DISTANCE_KM = 500.0
-
-
-def _extract_text_tokens(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9]{4,}", (text or "").lower()))
+_STATIC_TONE_PATTERNS = (
+    (
+        re.compile(r"^The retrieved reporting does not specify any possible disruptions\.?\s*", re.IGNORECASE),
+        "I don't see any confirmed disruptions in the current reporting. ",
+    ),
+    (
+        re.compile(r"^The retrieved reporting does not confirm that ", re.IGNORECASE),
+        "I don't see anything in the current reporting that confirms ",
+    ),
+    (
+        re.compile(r"^The retrieved reporting does not specify ", re.IGNORECASE),
+        "I don't see anything in the current reporting that specifies ",
+    ),
+    (re.compile(r"^The retrieved weather data for ", re.IGNORECASE), "The current weather for "),
+    (
+        re.compile(r" does not specify any possible risks or weather disturbances\.?$", re.IGNORECASE),
+        " doesn't point to any specific weather disruptions right now.",
+    ),
+    (re.compile(r" does not specify that detail\.?$", re.IGNORECASE), " doesn't spell that out."),
+)
+_GENERIC_ANSWER_PATTERNS = (
+    re.compile(r"\blooks generally fine for travel\b", re.IGNORECASE),
+    re.compile(r"\blow risk level\b", re.IGNORECASE),
+    re.compile(r"\brecent local reporting highlights\b", re.IGNORECASE),
+    re.compile(r"\bcurrent news scan did not surface\b", re.IGNORECASE),
+    re.compile(r"\brisk level\b", re.IGNORECASE),
+)
+_DIRECT_ANSWER_PATTERNS = (
+    re.compile(r"\b(?:not specified|doesn't say|does not say|doesn't confirm|does not confirm)\b", re.IGNORECASE),
+    re.compile(r"\b(?:through|until|scheduled|expected|continues?|lasting|runs?)\b", re.IGNORECASE),
+    re.compile(r"\b(?:yes|no)\b", re.IGNORECASE),
+    re.compile(r"\b(?:i don't see|i can'?t|can'?t answer|cannot answer)\b", re.IGNORECASE),
+)
 
 
 def _match_news_item(
@@ -37,14 +72,14 @@ def _match_news_item(
         return None
 
     reference_text = " ".join(part for part in (question or "", last_reply or "") if part and part.strip()).strip()
-    reference_tokens = _extract_text_tokens(reference_text)
+    reference_tokens = meaningful_tokens(reference_text)
     if not reference_tokens:
         return eligible_items[0]
 
     best_item = eligible_items[0]
     best_score = -1
     for item in eligible_items:
-        item_tokens = _extract_text_tokens(_news_text(item))
+        item_tokens = meaningful_tokens(_news_text(item))
         score = len(reference_tokens & item_tokens)
         if score > best_score:
             best_item = item
@@ -198,36 +233,13 @@ def _soften_followup_tone(final: str, place: str) -> str:
             ),
             f"The current forecast for {place} doesn't spell that out.",
         ),
-        (
-            re.compile(r"^The retrieved reporting does not specify any possible disruptions\.?\s*", re.IGNORECASE),
-            "I don't see any confirmed disruptions in the current reporting. ",
-        ),
-        (
-            re.compile(r"^The retrieved reporting does not confirm that ", re.IGNORECASE),
-            "I don't see anything in the current reporting that confirms ",
-        ),
-        (
-            re.compile(r"^The retrieved reporting does not specify ", re.IGNORECASE),
-            "I don't see anything in the current reporting that specifies ",
-        ),
-        (
-            re.compile(r"^The retrieved weather data for ", re.IGNORECASE),
-            "The current weather for ",
-        ),
-        (
-            re.compile(r" does not specify any possible risks or weather disturbances\.?$", re.IGNORECASE),
-            " doesn't point to any specific weather disruptions right now.",
-        ),
-        (
-            re.compile(r" does not specify that detail\.?$", re.IGNORECASE),
-            " doesn't spell that out.",
-        ),
+        *_STATIC_TONE_PATTERNS,
     )
 
     for pattern, replacement in replacements:
         text = pattern.sub(replacement, text)
 
-    return re.sub(r"\s{2,}", " ", text).strip()
+    return " ".join(text.split())
 
 
 def _condense_direct_answer(final: str) -> str:
@@ -239,22 +251,8 @@ def _condense_direct_answer(final: str) -> str:
     if len(parts) <= 1:
         return text
 
-    generic_patterns = (
-        re.compile(r"\blooks generally fine for travel\b", re.IGNORECASE),
-        re.compile(r"\blow risk level\b", re.IGNORECASE),
-        re.compile(r"\brecent local reporting highlights\b", re.IGNORECASE),
-        re.compile(r"\bcurrent news scan did not surface\b", re.IGNORECASE),
-        re.compile(r"\brisk level\b", re.IGNORECASE),
-    )
-    answer_patterns = (
-        re.compile(r"\b(?:not specified|doesn't say|does not say|doesn't confirm|does not confirm)\b", re.IGNORECASE),
-        re.compile(r"\b(?:through|until|scheduled|expected|continues?|lasting|runs?)\b", re.IGNORECASE),
-        re.compile(r"\b(?:yes|no)\b", re.IGNORECASE),
-        re.compile(r"\b(?:i don't see|i can'?t|can'?t answer|cannot answer)\b", re.IGNORECASE),
-    )
-
-    non_generic = [part for part in parts if not any(pattern.search(part) for pattern in generic_patterns)]
-    direct = [part for part in non_generic if any(pattern.search(part) for pattern in answer_patterns)]
+    non_generic = [part for part in parts if not any(pattern.search(part) for pattern in _GENERIC_ANSWER_PATTERNS)]
+    direct = [part for part in non_generic if any(pattern.search(part) for pattern in _DIRECT_ANSWER_PATTERNS)]
 
     if direct:
         return direct[0].strip()
@@ -332,7 +330,7 @@ def _extract_link_from_block(block: Any) -> str | None:
 
 
 def _contains_url(text: str) -> bool:
-    return bool(re.search(r"https?://\S+", text or ""))
+    return contains_http_url(text)
 
 
 def _append_followup_link_if_needed(final: str, evidence: dict[str, Any]) -> str:

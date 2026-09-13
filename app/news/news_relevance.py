@@ -4,8 +4,29 @@ import re
 from typing import Any
 
 _PLACE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_MATCH_TOKEN_RE = re.compile(r"[a-z0-9]{4,}")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
 _RAW_URL_RE = re.compile(r"https?://[^\s)\]]+")
+_MATCH_TEXT_LIMIT = 8_000
+_MATCH_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "again",
+        "also",
+        "been",
+        "from",
+        "have",
+        "into",
+        "that",
+        "than",
+        "there",
+        "this",
+        "through",
+        "until",
+        "with",
+    }
+)
 _HIGH_IMPACT_TERMS = (
     "suspend",
     "suspension",
@@ -22,6 +43,16 @@ _HIGH_IMPACT_TERMS = (
 
 def _tokens(value: str | None) -> set[str]:
     return set(_PLACE_TOKEN_RE.findall((value or "").casefold()))
+
+
+def meaningful_tokens(value: str | None) -> set[str]:
+    bounded = (value or "").casefold()[:_MATCH_TEXT_LIMIT]
+    return {token for token in _MATCH_TOKEN_RE.findall(bounded) if token not in _MATCH_STOPWORDS}
+
+
+def contains_http_url(value: str | None) -> bool:
+    text = value or ""
+    return "http://" in text or "https://" in text
 
 
 def normalize_place(place: str) -> str:

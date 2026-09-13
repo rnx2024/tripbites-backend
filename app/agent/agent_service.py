@@ -39,7 +39,13 @@ from app.agent.followup_qa import (
 from app.agent.followup_qa import (
     answer_weather_followup as _answer_weather_followup,
 )
-from app.news.news_relevance import contains_high_impact_claim, sanitize_answer_links, supports_high_impact_claim
+from app.news.news_relevance import (
+    contains_high_impact_claim,
+    contains_http_url,
+    meaningful_tokens,
+    sanitize_answer_links,
+    supports_high_impact_claim,
+)
 from app.session.errors import SessionStoreUnavailable
 
 # session memory (Redis-backed)
@@ -324,11 +330,13 @@ def _ground_final_answer(final: str, place: str, brief: dict[str, Any]) -> str:
     return final
 
 
-def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
-    if not final or final.lower().startswith("i couldn't confirm that specific update"):
-        return final
+def _news_item_tokens(item: dict[str, Any]) -> set[str]:
+    text = " ".join(str(item.get(field) or "") for field in ("title", "snippet"))
+    return meaningful_tokens(text)
 
-    answer_tokens = set(re.findall(r"[a-z0-9]{4,}", final.casefold()))
+
+def _find_best_news_link(final: str, brief: dict[str, Any]) -> str | None:
+    answer_tokens = meaningful_tokens(final)
     best_link: str | None = None
     best_score = 0
     for item in brief.get("news_items") or []:
@@ -337,29 +345,28 @@ def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
         link = str(item.get("link") or "").strip()
         if not link.startswith(("http://", "https://")):
             continue
-
-        item_tokens = set(
-            re.findall(
-                r"[a-z0-9]{4,}",
-                " ".join(str(item.get(field) or "") for field in ("title", "snippet")).casefold(),
-            )
-        )
-        score = len(answer_tokens & item_tokens)
+        score = len(answer_tokens & _news_item_tokens(item))
         if score > best_score:
             best_link = link
             best_score = score
+    return best_link
 
-    if not best_link:
-        return final
 
-    raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(best_link)}")
+def _add_news_source_label(final: str, link: str) -> str:
+    raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
     if raw_source.search(final):
-        return raw_source.sub(f"[Source]({best_link})", final, count=1)
-    if re.search(r"https?://\S+", final):
+        return raw_source.sub(f"[Source]({link})", final, count=1)
+    if contains_http_url(final):
         return final
-
     separator = "" if final.endswith((".", "!", "?")) else "."
-    return f"{final}{separator} [Source]({best_link})"
+    return f"{final}{separator} [Source]({link})"
+
+
+def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
+    if not final or final.lower().startswith("i couldn't confirm that specific update"):
+        return final
+    best_link = _find_best_news_link(final, brief)
+    return _add_news_source_label(final, best_link) if best_link else final
 
 
 def _build_policy_lines(
