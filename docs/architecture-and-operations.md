@@ -5,13 +5,16 @@
 ```text
 Frontend proxy
       ↓ x-api-key / session headers
-Render Docker container
-      ↓
-FastAPI routes → LangGraph agent → LLM provider
-      ├── Redis sessions and short-lived cache
-      ├── Weather providers
-      ├── News providers
-      └── OpenRouteService for journey planning
+FastAPI routes in the Render Docker container
+      ├── /session → signed session token
+      ├── /chat → context routing → LangGraph tools → grounded response
+      ├── /weather, /news, /travel-brief → provider-backed reads
+      └── /health/live and /health/ready → liveness/readiness probes
+                    ├── Redis sessions and one-hour tool cache
+                    ├── Weather providers
+                    ├── News providers
+                    ├── OpenRouteService
+                    └── OpenRouter LLM
 ```
 
 ## Deployment
@@ -22,7 +25,15 @@ The free Render service may sleep and require a cold start. Request retries belo
 
 ## State and dependencies
 
-Redis stores session and short-lived cache data. The container filesystem is not durable and must not be used for reports, uploads, or persistent application state. External weather, news, routing, and LLM services are accessed through backend-only credentials.
+Redis stores conversation/session state and provider/tool cache data. Cache entries
+use a one-hour default TTL and signed session tokens use a 24-hour default TTL.
+The container filesystem is not durable and must not be used for reports, uploads,
+or persistent application state. External weather, news, routing, and LLM services
+are accessed through backend-only credentials.
+
+Protected application routes require `x-api-key`; `/chat` additionally requires
+the signed `x-session-id` and `x-session-token` headers. Liveness does not require
+Redis, while readiness returns `503` until Redis is reachable.
 
 ## Observability
 
@@ -30,4 +41,8 @@ Requests emit structured `request.completed` or `request.failed` events containi
 
 ## Verification and recovery
 
-Run the locked test suite and Docker build before deployment. After deployment, check `/health/live`, then `/health/ready` and a normal frontend request. For a provider failure, rely on the stable error response and retry guidance; for Redis failure, restore the dependency before treating the service as ready.
+Run `uv run pytest`, `uv run ruff check .`, and the complete Docker image build
+before deployment. After deployment, check `/health/live`, then `/health/ready`
+and a normal frontend request. For a provider failure, rely on the stable error
+response and retry guidance; for Redis failure, restore the dependency before
+treating the service as ready.

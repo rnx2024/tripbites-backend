@@ -59,6 +59,9 @@ from app.settings import settings
 
 log = structlog.get_logger(__name__)
 
+# LangGraph/LangChain is used here for observable tool execution, composable
+# weather/news/routing tools, future streaming support, and provider flexibility.
+
 # -----------------------------------------------------
 # LLM + tools
 # -----------------------------------------------------
@@ -844,7 +847,18 @@ async def run_agent(
     debug: bool = False,
 ) -> dict[str, Any]:
     """
-    Run the LangGraph ReAct agent with tool gating per request.
+    Resolve session context, route the request, and return a grounded brief.
+
+    The request flow is:
+    1. Load recent conversation, destination, origin, and pending context.
+    2. Reset destination-scoped state when the destination changes.
+    3. Resolve origin and classify the answer mode, including follow-ups.
+    4. Handle deterministic clarification/follow-up paths or run the tool-gated
+       LangGraph agent for weather, news, routing, or travel-brief data.
+    5. Ground the final response, persist the exchange, and return the API shape.
+
+    The implementation does not expose private model reasoning; debug output
+    contains execution metadata only.
     """
     log.info("agent.request.received", session_id=session_id, place=place, has_question=bool(question))
     try:
