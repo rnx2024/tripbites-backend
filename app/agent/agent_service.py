@@ -10,6 +10,8 @@ from app.agent import agent_execution, agent_followup_dispatch, agent_routing
 from app.agent.agent_context import PreparedRequest as _PreparedRequest
 from app.agent.agent_context import build_user_prompt as _build_user_prompt
 from app.agent.agent_context import prepare_request_context
+from app.agent.agent_execution import AgentExecutionDependencies, AgentExecutionRequest
+from app.agent.agent_followup_dispatch import FollowupDispatchDependencies, FollowupRequest
 from app.agent.agent_policy import AnswerMode
 from app.agent.agent_response import _append_news_source_link
 from app.agent.followup_qa import (
@@ -128,17 +130,21 @@ async def _finalize_result(
 
 
 async def _handle_pre_agent_paths(**kwargs: Any) -> dict[str, Any] | None:
-    return await agent_followup_dispatch.handle_pre_agent_paths(
-        **kwargs,
+    request = FollowupRequest(**kwargs)
+    dependencies = FollowupDispatchDependencies(
         llm=_llm,
-        answer_news_fn=_answer_news_followup,
-        answer_weather_fn=_answer_weather_followup,
-        answer_general_fn=_answer_general_followup,
-        answer_journey_fn=_answer_journey_question,
-        mark_tools_called_fn=mark_tools_called,
-        set_pending_agent_context_fn=set_pending_agent_context,
-        set_pending_journey_question_fn=set_pending_journey_question,
-        finalize_result_fn=_finalize_result,
+        answer_news=_answer_news_followup,
+        answer_weather=_answer_weather_followup,
+        answer_general=_answer_general_followup,
+        answer_journey=_answer_journey_question,
+        mark_tools_called=mark_tools_called,
+        set_pending_agent_context=set_pending_agent_context,
+        set_pending_journey_question=set_pending_journey_question,
+        finalize_result=_finalize_result,
+    )
+    return await agent_followup_dispatch.handle_pre_agent_paths(
+        request,
+        dependencies,
     )
 
 
@@ -161,18 +167,20 @@ async def _invoke_agent_graph(
 
 
 async def _run_broad_agent(**kwargs: Any) -> dict[str, Any]:
-    return await agent_execution.run_broad_agent(
-        **kwargs,
-        build_user_prompt_fn=_build_user_prompt,
-        build_policy_lines_fn=_build_policy_lines,
-        get_react_app_fn=_get_react_app,
-        invoke_agent_graph_fn=_invoke_agent_graph,
-        should_include_fn=should_include,
-        mark_tools_called_fn=mark_tools_called,
-        set_active_destination_fn=set_active_destination,
-        recursion_limit=settings.agent_recursion_limit,
-        timeout_seconds=settings.agent_timeout_seconds,
+    request = AgentExecutionRequest(**kwargs)
+    dependencies = AgentExecutionDependencies(
+        build_user_prompt=_build_user_prompt,
+        build_policy_lines=_build_policy_lines,
+        get_react_app=_get_react_app,
+        invoke_agent_graph=_invoke_agent_graph,
+        should_include=should_include,
+        mark_tools_called=mark_tools_called,
+        set_active_destination=set_active_destination,
         log=log,
+    )
+    return await agent_execution.run_broad_agent(
+        request,
+        dependencies,
     )
 
 

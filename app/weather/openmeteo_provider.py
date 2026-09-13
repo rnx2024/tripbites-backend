@@ -85,7 +85,7 @@ def classify_weather_code(code: int | None) -> str:
     return "unknown"
 
 
-def geocode_place(place: str, language: str = "en"):
+def _get_geocoding_response(place: str, language: str) -> tuple[httpx.Response | None, str | None]:
     @build_http_retry()
     def _get() -> httpx.Response:
         response = httpx.get(
@@ -97,7 +97,7 @@ def geocode_place(place: str, language: str = "en"):
         return response
 
     try:
-        response = _get()
+        return _get(), None
     except httpx.TimeoutException:
         return None, "Open-Meteo geocoding timeout."
     except httpx.HTTPStatusError as exc:
@@ -106,6 +106,8 @@ def geocode_place(place: str, language: str = "en"):
     except httpx.RequestError:
         return None, "request_failed"
 
+
+def _parse_geocoding_response(response: httpx.Response) -> tuple[dict[str, Any] | None, str | None]:
     try:
         data = response.json() or {}
     except ValueError:
@@ -134,6 +136,13 @@ def geocode_place(place: str, language: str = "en"):
         "longitude": longitude,
         "timezone": bounded_text(loc.get("timezone"), maximum=100) or "auto",
     }, None
+
+
+def geocode_place(place: str, language: str = "en"):
+    response, error = _get_geocoding_response(place, language)
+    if error or response is None:
+        return None, error
+    return _parse_geocoding_response(response)
 
 
 def fetch_openmeteo_forecast(lat: float, lon: float, timezone_name: str = "auto"):
