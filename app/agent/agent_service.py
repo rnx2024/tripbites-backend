@@ -5,6 +5,7 @@ import asyncio
 import json
 import re
 import time
+from dataclasses import dataclass
 from typing import Any, cast
 
 import structlog
@@ -38,7 +39,14 @@ from app.agent.followup_qa import (
 from app.agent.followup_qa import (
     answer_weather_followup as _answer_weather_followup,
 )
-from app.news.news_relevance import contains_high_impact_claim, sanitize_answer_links, supports_high_impact_claim
+from app.news.news_relevance import (
+    HTTPS_SCHEME,
+    contains_high_impact_claim,
+    contains_https_url,
+    meaningful_tokens,
+    sanitize_answer_links,
+    supports_high_impact_claim,
+)
 from app.session.errors import SessionStoreUnavailable
 
 # session memory (Redis-backed)
@@ -323,27 +331,43 @@ def _ground_final_answer(final: str, place: str, brief: dict[str, Any]) -> str:
     return final
 
 
-def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
-    if not final:
-        return final
+def _news_item_tokens(item: dict[str, Any]) -> set[str]:
+    text = " ".join(str(item.get(field) or "") for field in ("title", "snippet"))
+    return meaningful_tokens(text)
 
+
+def _find_best_news_link(final: str, brief: dict[str, Any]) -> str | None:
+    answer_tokens = meaningful_tokens(final)
+    best_link: str | None = None
+    best_score = 0
     for item in brief.get("news_items") or []:
         if not isinstance(item, dict):
             continue
         link = str(item.get("link") or "").strip()
-        if not link.startswith(("http://", "https://")):
+        if not link.startswith(HTTPS_SCHEME):
             continue
+        score = len(answer_tokens & _news_item_tokens(item))
+        if score > best_score:
+            best_link = link
+            best_score = score
+    return best_link
 
-        raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
-        if raw_source.search(final):
-            return raw_source.sub(f"[Source]({link})", final, count=1)
-        if re.search(r"https?://\S+", final):
-            return final
 
-        separator = "" if final.endswith((".", "!", "?")) else "."
-        return f"{final}{separator} [Source]({link})"
+def _add_news_source_label(final: str, link: str) -> str:
+    raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
+    if raw_source.search(final):
+        return raw_source.sub(f"[Source]({link})", final, count=1)
+    if contains_https_url(final):
+        return final
+    separator = "" if final.endswith((".", "!", "?")) else "."
+    return f"{final}{separator} [Source]({link})"
 
-    return final
+
+def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
+    if not final or final.lower().startswith("i couldn't confirm that specific update"):
+        return final
+    best_link = _find_best_news_link(final, brief)
+    return _add_news_source_label(final, best_link) if best_link else final
 
 
 def _build_policy_lines(
@@ -861,6 +885,86 @@ async def _run_broad_agent(
     return result
 
 
+@dataclass(frozen=True)
+class _PreparedRequest:
+    question: str | None
+    effective_question: str | None
+    origin: str | None
+    answer_mode: AnswerMode
+    route_or_transport: bool
+    last_user: str | None
+    last_reply: str | None
+    recent_turns: list[dict[str, str]]
+    same_destination_followup: bool
+    pending_question: str | None
+
+
+async def _prepare_request_context(*, session_id: str, place: str, question: str | None) -> _PreparedRequest:
+    last_user, last_reply = await get_last_exchange(session_id)
+    recent_turns = await get_recent_turns(session_id)
+    active_destination = await get_active_destination(session_id)
+    active_origin = await get_active_origin(session_id)
+    pending_agent_context = await get_pending_agent_context(session_id)
+    pending_journey_question = await get_pending_journey_question(session_id)
+    recent_turns, pending_agent_context, pending_journey_question = await _reset_session_for_destination_change(
+        session_id=session_id,
+        place=place,
+        active_destination=active_destination,
+        recent_turns=recent_turns,
+        pending_agent_context=pending_agent_context,
+        pending_journey_question=pending_journey_question,
+    )
+
+    origin, effective_question, awaiting_origin, pending_question = _resolve_origin_context(
+        question=question,
+        last_reply=last_reply,
+        last_user=last_user,
+        pending_agent_context=pending_agent_context,
+        pending_journey_question=pending_journey_question,
+        active_origin=active_origin,
+    )
+    same_destination_followup = _has_same_destination_followup(
+        question=question,
+        place=place,
+        active_destination=active_destination,
+        last_reply=last_reply,
+        recent_turns=recent_turns,
+        pending_agent_context=pending_agent_context,
+        pending_journey_question=pending_journey_question,
+    )
+    answer_mode = await _resolve_answer_mode(
+        question=effective_question,
+        last_reply=last_reply,
+        recent_turns=recent_turns,
+        pending_agent_context=pending_agent_context,
+        place=place,
+    )
+    if awaiting_origin and origin and (pending_agent_context or {}).get("mode") == "journey_planning":
+        answer_mode = "journey_planning"
+
+    origin = _finalize_origin(
+        origin=origin,
+        effective_question=effective_question,
+        last_reply=last_reply,
+        active_origin=active_origin,
+    )
+    if origin:
+        await set_active_origin(session_id, origin)
+
+    return _PreparedRequest(
+        question=question,
+        effective_question=effective_question,
+        origin=origin,
+        answer_mode=answer_mode,
+        route_or_transport=asks_route_or_transport(effective_question),
+        last_user=last_user,
+        last_reply=last_reply,
+        recent_turns=recent_turns,
+        same_destination_followup=same_destination_followup,
+        pending_question=pending_question,
+    )
+
+
 # -----------------------------------------------------
 # Public function: run_agent
 # -----------------------------------------------------
@@ -887,70 +991,20 @@ async def run_agent(
     """
     log.info("agent.request.received", session_id=session_id, place=place, has_question=bool(question))
     try:
-        last_user, last_reply = await get_last_exchange(session_id)
-        recent_turns = await get_recent_turns(session_id)
-        active_destination = await get_active_destination(session_id)
-        active_origin = await get_active_origin(session_id)
-        pending_agent_context = await get_pending_agent_context(session_id)
-        pending_journey_question = await get_pending_journey_question(session_id)
-        recent_turns, pending_agent_context, pending_journey_question = await _reset_session_for_destination_change(
-            session_id=session_id,
-            place=place,
-            active_destination=active_destination,
-            recent_turns=recent_turns,
-            pending_agent_context=pending_agent_context,
-            pending_journey_question=pending_journey_question,
-        )
-        origin, effective_question, awaiting_origin, pending_question = _resolve_origin_context(
-            question=question,
-            last_reply=last_reply,
-            last_user=last_user,
-            pending_agent_context=pending_agent_context,
-            pending_journey_question=pending_journey_question,
-            active_origin=active_origin,
-        )
-        same_destination_followup = _has_same_destination_followup(
-            question=question,
-            place=place,
-            active_destination=active_destination,
-            last_reply=last_reply,
-            recent_turns=recent_turns,
-            pending_agent_context=pending_agent_context,
-            pending_journey_question=pending_journey_question,
-        )
-
-        answer_mode = await _resolve_answer_mode(
-            question=effective_question,
-            last_reply=last_reply,
-            recent_turns=recent_turns,
-            pending_agent_context=pending_agent_context,
-            place=place,
-        )
-        if awaiting_origin and origin and (pending_agent_context or {}).get("mode") == "journey_planning":
-            answer_mode = "journey_planning"
-
-        origin = _finalize_origin(
-            origin=origin,
-            effective_question=effective_question,
-            last_reply=last_reply,
-            active_origin=active_origin,
-        )
-        if origin:
-            await set_active_origin(session_id, origin)
-        route_or_transport = asks_route_or_transport(effective_question)
+        prepared = await _prepare_request_context(session_id=session_id, place=place, question=question)
 
         result = await _handle_pre_agent_paths(
             session_id=session_id,
             place=place,
-            question=question,
-            last_reply=last_reply,
-            recent_turns=recent_turns,
-            answer_mode=answer_mode,
-            same_destination_followup=same_destination_followup,
-            effective_question=effective_question,
-            pending_question=pending_question,
-            origin=origin,
-            route_or_transport=route_or_transport,
+            question=prepared.question,
+            last_reply=prepared.last_reply,
+            recent_turns=prepared.recent_turns,
+            answer_mode=prepared.answer_mode,
+            same_destination_followup=prepared.same_destination_followup,
+            effective_question=prepared.effective_question,
+            pending_question=prepared.pending_question,
+            origin=prepared.origin,
+            route_or_transport=prepared.route_or_transport,
             debug=debug,
         )
         if result:
@@ -959,14 +1013,14 @@ async def run_agent(
         return await _run_broad_agent(
             session_id=session_id,
             place=place,
-            question=question,
-            effective_question=effective_question,
-            origin=origin,
-            answer_mode=answer_mode,
-            route_or_transport=route_or_transport,
-            last_user=last_user,
-            last_reply=last_reply,
-            recent_turns=recent_turns,
+            question=prepared.question,
+            effective_question=prepared.effective_question,
+            origin=prepared.origin,
+            answer_mode=prepared.answer_mode,
+            route_or_transport=prepared.route_or_transport,
+            last_user=prepared.last_user,
+            last_reply=prepared.last_reply,
+            recent_turns=prepared.recent_turns,
             debug=debug,
         )
     except SessionStoreUnavailable:
