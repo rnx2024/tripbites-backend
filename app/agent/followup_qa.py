@@ -331,26 +331,27 @@ def _extract_link_from_block(block: Any) -> str | None:
     return _extract_link_from_items(block.get("news_items"))
 
 
-def _answer_mentions_article_or_source(text: str) -> bool:
-    lowered = (text or "").lower()
-    return any(term in lowered for term in ("article", "source", "details", "read more", "here", "link"))
-
-
 def _contains_url(text: str) -> bool:
     return bool(re.search(r"https?://\S+", text or ""))
 
 
-def _append_followup_link_if_needed(final: str, evidence: dict[str, Any], original_text: str | None = None) -> str:
-    source_text = original_text or final
-    if not final or _contains_url(final) or not _answer_mentions_article_or_source(source_text):
+def _append_followup_link_if_needed(final: str, evidence: dict[str, Any]) -> str:
+    if not final:
         return final
 
     link = _extract_best_news_link(evidence)
     if not link:
         return final
 
+    raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
+    if raw_source.search(final):
+        return raw_source.sub(f"[Source]({link})", final, count=1)
+
+    if _contains_url(final):
+        return final
+
     separator = "" if final.endswith((".", "!", "?")) else "."
-    return f"{final}{separator} Source: {link}"
+    return f"{final}{separator} [Source]({link})"
 
 
 def _build_journey_targeted_query(origin: str, destination: str, question: str, pending_question: str | None) -> str:
@@ -671,7 +672,7 @@ async def answer_journey_question(
     )
     current_evidence["transport_guidance"] = transport_guidance
     plan = await _plan_journey_action(llm, place=place, question=question, evidence=current_evidence)
-    final, evidence, raw_final = await _resolve_with_search(
+    final, evidence, _raw_final = await _resolve_with_search(
         llm,
         place=place,
         question=question,
@@ -691,7 +692,7 @@ async def answer_journey_question(
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
     final = _validate_news_answer(final, evidence, place)
-    final = _append_followup_link_if_needed(final, evidence, raw_final)
+    final = _append_followup_link_if_needed(final, evidence)
     sources = [{"type": "weather"}, {"type": "news"}]
     return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": sources}
 
@@ -732,7 +733,7 @@ async def answer_news_followup(
             "matched_targeted_item": _match_news_item(question, last_reply, items, place),
         }
 
-    final, evidence, raw_final = await _resolve_with_search(
+    final, evidence, _raw_final = await _resolve_with_search(
         llm,
         place=place,
         question=question,
@@ -749,7 +750,7 @@ async def answer_news_followup(
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
     final = _validate_news_answer(final, evidence, place)
-    final = _append_followup_link_if_needed(final, evidence, raw_final)
+    final = _append_followup_link_if_needed(final, evidence)
     sources = [{"type": "news"}] if _has_matched_news_evidence(evidence) else []
     return {"place": place, "final": final, "risk_level": None, "travel_advice": [], "sources": sources}
 
@@ -786,7 +787,7 @@ async def answer_general_followup(
             "matched_targeted_item": _match_news_item(question, last_reply, items, place),
         }
 
-    final, evidence, raw_final = await _resolve_with_search(
+    final, evidence, _raw_final = await _resolve_with_search(
         llm,
         place=place,
         question=question,
@@ -803,7 +804,7 @@ async def answer_general_followup(
     final = _soften_followup_tone(final, place)
     final = _condense_direct_answer(final)
     final = _validate_news_answer(final, evidence, place)
-    final = _append_followup_link_if_needed(final, evidence, raw_final)
+    final = _append_followup_link_if_needed(final, evidence)
     return {
         "place": place,
         "final": final,
