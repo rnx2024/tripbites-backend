@@ -40,6 +40,7 @@ from app.agent.followup_qa import (
     answer_weather_followup as _answer_weather_followup,
 )
 from app.news.news_relevance import (
+    HTTPS_SCHEME,
     contains_high_impact_claim,
     contains_https_url,
     meaningful_tokens,
@@ -343,7 +344,7 @@ def _find_best_news_link(final: str, brief: dict[str, Any]) -> str | None:
         if not isinstance(item, dict):
             continue
         link = str(item.get("link") or "").strip()
-        if not link.startswith("https://"):
+        if not link.startswith(HTTPS_SCHEME):
             continue
         score = len(answer_tokens & _news_item_tokens(item))
         if score > best_score:
