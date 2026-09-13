@@ -1,5 +1,7 @@
 import asyncio
 import unittest
+from collections.abc import Awaitable, Callable
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from app.agent.agent_service import _append_news_source_link, run_agent
@@ -86,7 +88,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         pending_context: dict[str, str] | None,
         pending_question: str | None,
         journey_final: str,
-        resolve_answer_mode: AsyncMock | None = None,
+        resolve_answer_mode: Callable[..., Awaitable[Any]] | None = None,
         recent_turns: list[dict[str, str]] | None = None,
     ):
         journey_payload = {
@@ -358,7 +360,9 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
                 question="What are the local events?",
             )
 
-        prompt = app_mock.await_args.args[0]["messages"][0]["content"]
+        prompt_call = app_mock.await_args
+        assert prompt_call is not None
+        prompt = prompt_call.args[0]["messages"][0]["content"]
         self.assertIn("Recent conversation context", prompt)
         self.assertIn("Any disruptions?", prompt)
         self.assertIn("No major disruptions reported.", prompt)
@@ -400,7 +404,9 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
                                                     question="I am from Ilocos Sur and want to know if Boracay is okay this weekend.",
                                                 )
 
-        prompt = app_mock.await_args.args[0]["messages"][0]["content"]
+        prompt_call = app_mock.await_args
+        assert prompt_call is not None
+        prompt = prompt_call.args[0]["messages"][0]["content"]
         self.assertIn("selected location from the request is the only destination", prompt.lower())
         self.assertNotIn("change the location", prompt.lower())
 

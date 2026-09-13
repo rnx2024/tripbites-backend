@@ -70,7 +70,9 @@ class OriginFlowE2ETests(unittest.TestCase):
 
         self.assertEqual(second.json()["final"], "From Manila, land travel is practical.")
         journey_mock.assert_awaited()
-        args, kwargs = journey_mock.await_args
+        journey_call = journey_mock.await_args
+        assert journey_call is not None
+        args, kwargs = journey_call
         self.assertEqual(args[1], "Vigan")
         self.assertEqual(args[2], "So what is the best transpo to get there?")
         self.assertEqual(args[3], "Manila")

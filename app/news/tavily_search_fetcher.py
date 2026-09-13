@@ -47,11 +47,8 @@ def _normalize_tavily_results(results: list[dict[str, Any]]) -> list[dict[str, A
     return normalized
 
 
-def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[str, Any]], str]:
-    if not settings.tavily_api:
-        return [], "missing_tavily_api"
-
-    payload = {
+def _build_tavily_payload(query: str, place_hint: str | None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "api_key": settings.tavily_api,
         "query": query,
         "topic": "general",
@@ -62,28 +59,38 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
         "include_images": False,
         "include_raw_content": False,
     }
-    if place_hint:
-        payload["query"] = f"{query} {place_hint}".strip()
+    payload["query"] = f"{query} {place_hint}".strip() if place_hint else query
+    return payload
 
+
+def _post_tavily(payload: dict[str, Any]) -> httpx.Response:
     @build_http_retry(max_attempts=_RETRIES)
     def _post() -> httpx.Response:
         response = httpx.post(settings.tavily_search_url, json=payload, timeout=_TIMEOUT_SECONDS)
         response.raise_for_status()
         return response
 
+    return _post()
+
+
+def _request_tavily(payload: dict[str, Any]) -> tuple[httpx.Response | None, str]:
     try:
-        response = _post()
+        return _post_tavily(payload), ""
     except httpx.TimeoutException:
         log.warning("Timeout from Tavily after %s attempt(s)", _RETRIES)
-        return [], "timeout"
+        return None, "timeout"
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
         log.error("HTTP %s from Tavily after %s attempt(s)", status, _RETRIES)
-        return [], str(status)
+        return None, str(status)
     except httpx.RequestError:
         log.exception("Request error from Tavily after %s attempt(s)", _RETRIES)
-        return [], "request_failed"
+        return None, "request_failed"
 
+
+def _parse_tavily_response(
+    response: httpx.Response, place_hint: str | None
+) -> tuple[list[dict[str, Any]], str]:
     try:
         data = response.json()
     except ValueError:
@@ -97,3 +104,12 @@ def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[
     if place_hint:
         normalized = filter_relevant_news(normalized, place_hint)
     return normalized, ""
+
+
+def search_tavily(query: str, place_hint: str | None = None) -> tuple[list[dict[str, Any]], str]:
+    if not settings.tavily_api:
+        return [], "missing_tavily_api"
+    response, error = _request_tavily(_build_tavily_payload(query, place_hint))
+    if error or response is None:
+        return [], error
+    return _parse_tavily_response(response, place_hint)
