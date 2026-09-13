@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from typing import Any, cast
 
@@ -319,6 +320,29 @@ def _ground_final_answer(final: str, place: str, brief: dict[str, Any]) -> str:
         and not any(isinstance(item, dict) and supports_high_impact_claim(final, item, place) for item in news_items)
     ):
         return f"I couldn't confirm that specific update for {place} from the available news."
+    return final
+
+
+def _append_news_source_link(final: str, brief: dict[str, Any]) -> str:
+    if not final:
+        return final
+
+    for item in brief.get("news_items") or []:
+        if not isinstance(item, dict):
+            continue
+        link = str(item.get("link") or "").strip()
+        if not link.startswith(("http://", "https://")):
+            continue
+
+        raw_source = re.compile(rf"(?i)\bsource:\s*{re.escape(link)}")
+        if raw_source.search(final):
+            return raw_source.sub(f"[Source]({link})", final, count=1)
+        if re.search(r"https?://\S+", final):
+            return final
+
+        separator = "" if final.endswith((".", "!", "?")) else "."
+        return f"{final}{separator} [Source]({link})"
+
     return final
 
 
@@ -824,6 +848,7 @@ async def _run_broad_agent(
 
     brief = _extract_structured_brief(messages, place)
     grounded_final = _ground_final_answer(final_text or str(brief.get("final") or ""), place, brief)
+    grounded_final = _append_news_source_link(grounded_final, brief)
     result: dict[str, Any] = {
         "place": str(brief.get("place") or place),
         "final": grounded_final,

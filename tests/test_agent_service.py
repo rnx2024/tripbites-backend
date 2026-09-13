@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from app.agent.agent_service import run_agent
+from app.agent.agent_service import _append_news_source_link, run_agent
 from tests.support.redis_fakes import FakeRedis
 
 
@@ -15,6 +15,14 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         self._redis_patcher.stop()
         await asyncio.sleep(0)
+
+    def test_broad_news_answer_includes_a_labeled_source_link(self) -> None:
+        final = _append_news_source_link(
+            "Road closures may affect travel in Vigan.",
+            {"news_items": [{"link": "https://example.com/vigan-closures"}]},
+        )
+
+        self.assertEqual(final, "Road closures may affect travel in Vigan. [Source](https://example.com/vigan-closures)")
 
     @staticmethod
     def _brief(
@@ -750,7 +758,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
                             question="How does the fire affect travel there?",
                         )
 
-        self.assertIn("source: https://example.com/cebu-fire", result["final"].lower())
+        self.assertIn("[source](https://example.com/cebu-fire)", result["final"].lower())
 
     async def test_news_followup_duration_uses_targeted_search_and_direct_answer(self) -> None:
         initial_items = [
@@ -805,6 +813,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["travel_advice"], [])
         self.assertEqual(result["sources"], [{"type": "news"}])
         self.assertIn("through saturday afternoon", result["final"].lower())
+        self.assertIn("[source](https://example.com/vaccine-campaign-saturday)", result["final"].lower())
         search_mock.assert_called_once()
         search_query = search_mock.call_args.args[0]
         self.assertIn("vaccination", search_query.lower())
@@ -857,7 +866,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("does not say whether it will still be running this weekend", result["final"].lower())
         self.assertNotIn("looks generally fine for travel today", result["final"].lower())
         self.assertNotIn("low risk level", result["final"].lower())
-        self.assertEqual(result["final"].count("."), 1)
+        self.assertIn("[source](https://example.com/ironman-davao)", result["final"].lower())
 
     async def test_news_followup_does_not_append_unmatched_source_link(self) -> None:
         initial_items = [
@@ -1024,7 +1033,7 @@ class AgentServiceTests(unittest.IsolatedAsyncioTestCase):
                                                         )
 
         self.assertIn("yes.", result["final"].lower())
-        self.assertIn("source: https://example.com/batanes-aircon", result["final"].lower())
+        self.assertIn("[source](https://example.com/batanes-aircon)", result["final"].lower())
         self.assertIsNone(result["risk_level"])
         self.assertEqual(result["travel_advice"], [])
         search_mock.assert_called_once()
