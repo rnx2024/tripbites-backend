@@ -2,7 +2,21 @@ name: Backend CI
 
 on:
   push:
+    paths:
+      - "**"
+      - "!README.md"
+      - "!docs/**"
+      - "!**/*.md"
+      - "!**/*.mdx"
+      - "CHANGELOG.md"
   pull_request:
+    paths:
+      - "**"
+      - "!README.md"
+      - "!docs/**"
+      - "!**/*.md"
+      - "!**/*.mdx"
+      - "CHANGELOG.md"
 
 permissions:
   contents: read
